@@ -30,10 +30,17 @@ import (
 
 	"github.com/davidhadas/vault-control/pkg/vaultlog"
 	"go.uber.org/zap"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 const (
-	Organization = "research.ibm.com"
+	Organization   = "research.ibm.com"
+	CaCertName     = "ca.crt"
+	CertName       = "tls.crt"
+	PrivateKeyName = "tls.key"
 )
 
 var randReader = rand.Reader
@@ -100,8 +107,46 @@ func createTransportCertTemplate(expirationInterval time.Duration, sans []string
 	return cert, err
 }
 
+func ParseAndValidateSecret(secret *corev1.Secret, shouldContainCaCert bool) (*x509.Certificate, *rsa.PrivateKey, error) {
+	certBytes, ok := secret.Data[CertName]
+	if !ok {
+		return nil, nil, fmt.Errorf("missing cert bytes")
+	}
+	pkBytes, ok := secret.Data[PrivateKeyName]
+	if !ok {
+		return nil, nil, fmt.Errorf("missing pk bytes")
+	}
+	if shouldContainCaCert {
+		if _, ok := secret.Data[CaCertName]; !ok {
+			return nil, nil, fmt.Errorf("missing ca cert bytes")
+		}
+	}
+
+	caCert, caPk, err := ParseCert(certBytes, pkBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	rotationThreshold := 10 * time.Minute
+	if err := CheckExpiry(caCert, rotationThreshold); err != nil {
+		return nil, nil, err
+	}
+	return caCert, caPk, nil
+}
+
+func CommitUpdatedSecret(client kubernetes.Interface, secret *corev1.Secret, keyPair *KeyPair, caCert []byte) error {
+	secret.Data = make(map[string][]byte, 6)
+	secret.Data[CertName] = keyPair.CertBytes()
+	secret.Data[PrivateKeyName] = keyPair.PrivateKeyBytes()
+	if caCert != nil {
+		secret.Data[CaCertName] = caCert
+	}
+
+	_, err := client.CoreV1().Secrets(secret.Namespace).Update(context.Background(), secret, metav1.UpdateOptions{})
+	return err
+}
+
 // CreateCert generates the certificate for use by client and server
-func CreateCert(ctx context.Context, caKey *rsa.PrivateKey, caCertificate *x509.Certificate, expirationInterval time.Duration, sans ...string) (*KeyPair, error) {
+func CreateCert(caKey *rsa.PrivateKey, caCertificate *x509.Certificate, expirationInterval time.Duration, sans ...string) (*KeyPair, error) {
 	logger := vaultlog.Log
 
 	// Then create the private key for the serving cert
@@ -131,7 +176,7 @@ func CreateCert(ctx context.Context, caKey *rsa.PrivateKey, caCertificate *x509.
 }
 
 // CreateCACerts generates the root CA cert
-func CreateCACerts(ctx context.Context, expirationInterval time.Duration) (*KeyPair, error) {
+func CreateCACerts(expirationInterval time.Duration) (*KeyPair, error) {
 	logger := vaultlog.Log
 	caKeyPair, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -179,4 +224,12 @@ func ParseCert(certPemBytes []byte, privateKeyPemBytes []byte) (*x509.Certificat
 	}
 	pk, err := x509.ParsePKCS1PrivateKey(pkBlock.Bytes)
 	return cert, pk, err
+}
+
+// CheckExpiry checks the expiration of the certificate
+func CheckExpiry(cert *x509.Certificate, rotationThreshold time.Duration) error {
+	if time.Now().Add(rotationThreshold).After(cert.NotAfter) {
+		return fmt.Errorf("certificate is going to expire %v", cert.NotAfter)
+	}
+	return nil
 }
