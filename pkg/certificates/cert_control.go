@@ -28,12 +28,13 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/davidhadas/vault-control/pkg/vaultlog"
 	"go.uber.org/zap"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/davidhadas/seal-control/pkg/seallog"
 )
 
 const (
@@ -147,7 +148,7 @@ func CommitUpdatedSecret(client kubernetes.Interface, secret *corev1.Secret, key
 
 // CreateCert generates the certificate for use by client and server
 func CreateCert(caKey *rsa.PrivateKey, caCertificate *x509.Certificate, expirationInterval time.Duration, sans ...string) (*KeyPair, error) {
-	logger := vaultlog.Log
+	logger := seallog.Log
 
 	// Then create the private key for the serving cert
 	keyPair, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -177,7 +178,7 @@ func CreateCert(caKey *rsa.PrivateKey, caCertificate *x509.Certificate, expirati
 
 // CreateCACerts generates the root CA cert
 func CreateCACerts(expirationInterval time.Duration) (*KeyPair, error) {
-	logger := vaultlog.Log
+	logger := seallog.Log
 	caKeyPair, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		logger.Errorw("error generating random key", zap.Error(err))

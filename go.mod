@@ -1,4 +1,4 @@
-module github.com/davidhadas/vault-control
+module github.com/davidhadas/seal-control
 
 go 1.20
 
