@@ -22,8 +22,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/davidhadas/vault-control/pkg/certificates"
-	"github.com/davidhadas/vault-control/pkg/vaultlog"
+	"github.com/davidhadas/seal-control/pkg/certificates"
+	"github.com/davidhadas/seal-control/pkg/seallog"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -35,8 +35,8 @@ import (
 )
 
 func main() {
-	vaultlog.InitLog()
-	logger := vaultlog.Log
+	seallog.InitLog()
+	logger := seallog.Log
 
 	var err error
 	var kubeCfg *rest.Config
