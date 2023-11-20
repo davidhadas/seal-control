@@ -1,2 +1,2 @@
-# vault-control
+# seal-control
 Workload Vault Control
