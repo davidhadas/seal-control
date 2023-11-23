@@ -3,6 +3,8 @@
 WIP
 
 Workload Seal Control
-Root of Trust for a Sealed workload
+
+
+Root-Of-Trust for a Sealed workload
 
 
