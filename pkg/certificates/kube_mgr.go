@@ -18,6 +18,7 @@ package certificates
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"path/filepath"
@@ -31,17 +32,18 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
-type KubeMgr struct {
+var KubeMgr *KubeMgrStruct
+
+type KubeMgrStruct struct {
 	client            *kubernetes.Clientset
 	sealCtrlNamespace string
-	caName            string
+	RotCaKeyRing      *KeyRing
 }
 
-func NewKubeMgr(sealCtrlNamespace string, caName string) (*KubeMgr, error) {
+func InitKubeMgr(sealCtrlNamespace string) error {
 	var err error
-	kubeMgr := &KubeMgr{
+	KubeMgr = &KubeMgrStruct{
 		sealCtrlNamespace: sealCtrlNamespace,
-		caName:            caName,
 	}
 
 	var kubeCfg *rest.Config
@@ -59,34 +61,41 @@ func NewKubeMgr(sealCtrlNamespace string, caName string) (*KubeMgr, error) {
 
 		// Use the current context in kubeconfig
 		if kubeCfg, err = clientcmd.BuildConfigFromFlags("", *devKubeConfigStr); err != nil {
-			return nil, fmt.Errorf("No Config found to access KubeApi! err: %w\n", err)
+			return fmt.Errorf("No Config found to access KubeApi! err: %w\n", err)
 		}
 	}
 
 	// Create a secrets client
-	kubeMgr.client, err = kubernetes.NewForConfig(kubeCfg)
+	KubeMgr.client, err = kubernetes.NewForConfig(kubeCfg)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to configure KubeAPi using config: %w\n", err)
+		return fmt.Errorf("Failed to configure KubeAPi using config: %w\n", err)
 	}
 
-	return kubeMgr, nil
+	KubeMgr.RotCaKeyRing, err = GetCA(KubeMgr, "")
+	if err != nil {
+		return fmt.Errorf("Failed to get a CA: %w", err)
+	}
+	return nil
 }
 
-func (kubeMgr *KubeMgr) GetCa() (*v1.Secret, error) {
+func (kubeMgr *KubeMgrStruct) GetCa(workloadName string) (*v1.Secret, error) {
+	if len(workloadName) > 32 {
+		return nil, errors.New("workloadName too long")
+	}
 	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
-	return secrets.Get(context.Background(), kubeMgr.caName, metav1.GetOptions{})
+	return secrets.Get(context.Background(), workloadName, metav1.GetOptions{})
 }
 
-func (kubeMgr *KubeMgr) CreateCa() (*v1.Secret, error) {
+func (kubeMgr *KubeMgrStruct) CreateCa(workloadName string) (*v1.Secret, error) {
 	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	s := corev1.Secret{}
-	s.Name = kubeMgr.caName
+	s.Name = workloadName
 	s.Namespace = kubeMgr.sealCtrlNamespace
 	s.Data = map[string][]byte{}
 	return secrets.Create(context.Background(), &s, metav1.CreateOptions{})
 }
 
-func (kubeMgr *KubeMgr) UpdateCA(secret *v1.Secret) (*v1.Secret, error) {
+func (kubeMgr *KubeMgrStruct) UpdateCA(secret *v1.Secret) (*v1.Secret, error) {
 	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	return secrets.Update(context.Background(), secret, metav1.UpdateOptions{})
 }

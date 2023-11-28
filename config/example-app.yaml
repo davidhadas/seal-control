@@ -6,20 +6,15 @@ metadata:
     app.kubernetes.io/name: MyApp
 spec:
   containers:
-  - name: myapp-container
-    image: busybox:1.28
-    command: ['sh', '-c', 'echo The app is running! && sleep 3600']
-    volumeMounts:
-      - name: shared-volume
-        mountPath: /seal
-    name: seal-sidecar
-    image: ko://github.com/davidhadas/cmd/seal-sidecar
+  - name: seal-sidecar
+    image: ko://github.com/davidhadas/seal-control/cmd/seal-sidecar
+    imagePullPolicy: IfNotPresent
     volumeMounts:
       - name: shared-volume
         mountPath: /seal
   initContainers:
   - name: seal-init
-    image: ko://github.com/davidhadas/cmd/seal-init
+    image: ko://github.com/davidhadas/seal-control/cmd/seal-init
     imagePullPolicy: IfNotPresent
     volumeMounts:
       - name: shared-volume

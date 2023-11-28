@@ -23,60 +23,64 @@ import (
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	"github.com/davidhadas/seal-control/pkg/log"
-	"github.com/davidhadas/seal-control/pkg/protocol"
 )
 
 const (
 	sealCtrlNamespace = "seal-control"
-	caName            = "seal-ctrl-ca"
 )
 
 func main() {
 	log.InitLog()
 	logger := log.Log
 
-	kubeMgr, err := certificates.NewKubeMgr(sealCtrlNamespace, caName)
+	err := certificates.InitKubeMgr(sealCtrlNamespace)
 	if err != nil {
 		logger.Infof("Failed to create a kubeMgr: %v\n", err)
 		return
 	}
-	caKeyRing, err := certificates.GetCA(kubeMgr)
+	caKeyRing, err := certificates.GetCA(certificates.KubeMgr, "my-workload-name")
 	if err != nil {
 		logger.Infof("Failed to get a CA: %v\n", err)
 		return
 	}
-	podMessage, err := certificates.CreatePodMessage(caKeyRing, "mypod", []byte("myWorkloadName12myWorkloadName12"))
+
+	pmr := certificates.PodMessageReq{
+		PodName:      "my-pod",
+		WorkloadName: "my-workload-name",
+	}
+
+	podMessage, err := certificates.CreatePodMessage(caKeyRing, &pmr)
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %v\n", err)
 		return
 	}
-	logger.Infof("Done processing knative-serving-certs secret\n")
+	logger.Infof("Done processing secret\n")
 	//certificates.RenewCA(kubeMgr, caKeyRing)
 	//certificates.RenewCA(kubeMgr, caKeyRing)
 	//certificates.RenewSymetricKey(kubeMgr, caKeyRing)
 	cert, caPool, err := certificates.GetTlsFromPodMessage(podMessage)
 
-	mtc := &protocol.MutualTls{
+	mtc := &certificates.MutualTls{
 		Cert:   cert,
 		CaPool: caPool,
 	}
 	mtc.AddPeer("mypod2")
-	mtc.AddPeer("mypod")
+	mtc.AddPeer("my-pod")
 	mtc.AddPeer("mypod3")
 	go client(mtc)
 
-	mts := &protocol.MutualTls{
+	mts := &certificates.MutualTls{
 		IsServer: true,
 		Cert:     cert,
 		CaPool:   caPool,
 	}
 	mts.AddPeer("mypod2")
-	mts.AddPeer("mypod")
+	mts.AddPeer("my-pod")
 	mts.AddPeer("mypod3")
 	server(mts)
 }
 
-func client(mt *protocol.MutualTls) {
+func client(mt *certificates.MutualTls) {
 	client := mt.Client()
 
 	// Create an HTTP request with custom headers
@@ -110,7 +114,7 @@ func process(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(w, "Hello")
 }
 
-func server(mt *protocol.MutualTls) {
+func server(mt *certificates.MutualTls) {
 	logger := log.Log
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", process)

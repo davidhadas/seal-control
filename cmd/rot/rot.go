@@ -17,9 +17,8 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
+	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	"github.com/davidhadas/seal-control/pkg/log"
@@ -27,11 +26,9 @@ import (
 
 const (
 	sealCtrlNamespace = "seal-control"
-	caName            = "seal-ctrl-ca"
 )
 
 // WIP
-var kubeMgr *certificates.KubeMgr
 
 func main() {
 	log.InitLog()
@@ -39,43 +36,41 @@ func main() {
 	var err error
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/rot", getRoT)
+	mux.HandleFunc("/rot", certificates.Rot_service)
 
-	kubeMgr, err = certificates.NewKubeMgr(sealCtrlNamespace, caName)
+	err = certificates.InitKubeMgr(sealCtrlNamespace)
 	if err != nil {
 		logger.Infof("Failed to create a kubeMgr: %v\n", err)
 		return
 	}
 
-	server := &http.Server{
-		Handler:           mux,
-		Addr:              ":3333",
-		ReadHeaderTimeout: 2 * time.Second,  // Slowloris attack
-		ReadTimeout:       10 * time.Second, // RUDY attack
-	}
-
-	err = server.ListenAndServe()
-	if err != nil {
-		logger.Fatal("ListenAndServe", err)
-	}
-}
-
-func getRoT(w http.ResponseWriter, r *http.Request) {
-	logger := log.Log
-
-	logger.Infof("got /rot request\n")
-	caKeyRing, err := certificates.GetCA(kubeMgr)
-	if err != nil {
-		logger.Infof("Failed to get a CA: %v\n", err)
-		return
-	}
-	podMessage, err := certificates.CreatePodMessage(caKeyRing, "mypod", []byte("myWorkloadName12myWorkloadName12"))
+	cert, caPool, err := certificates.CreateRot(certificates.KubeMgr.RotCaKeyRing)
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %v\n", err)
 		return
 	}
+	egg, err := certificates.CreateInit(certificates.KubeMgr.RotCaKeyRing, "my-workload", "my-pod", "https://192.168.68.102:8443/rot")
+	if err != nil {
+		logger.Infof("Failed to CreateInit: %v\n", err)
+		return
+	}
+	eegg, err := egg.Encode()
+	if err != nil {
+		logger.Infof("Failed to encode egg: %v\n", err)
+		return
+	}
+	fmt.Println(eegg)
 
-	logger.Infof("Done processing knative-serving-certs secret\n")
-	bytes, err := json.Marshal(podMessage)
-	w.Write(bytes)
+	mts := &certificates.MutualTls{
+		IsServer: true,
+		Cert:     cert,
+		CaPool:   caPool,
+	}
+	mts.AddPeer("init")
+
+	server := mts.Server(mux)
+	err = server.ListenAndServeTLS("", "")
+	if err != nil {
+		logger.Fatal("ListenAndServeTLS", err)
+	}
 }
