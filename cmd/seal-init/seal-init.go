@@ -18,8 +18,8 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	"github.com/davidhadas/seal-control/pkg/log"
@@ -31,25 +31,34 @@ func main() {
 	log.InitLog()
 	logger := log.Log
 
-	eegg, err := os.ReadFile("egg.txt")
+	eggpath := os.Getenv("KO_DATA_PATH")
+	podmessagepath := "/seal/podMessage"
+	if eggpath == "" {
+		eggpath = "./kodata"
+		podmessagepath = "/tmp/podMessage"
+	}
+	eggpath = filepath.Join(eggpath, "egg.txt")
+
+	eegg, err := os.ReadFile(eggpath)
 	if err != nil {
 		logger.Fatal(err)
+		os.Exit(1)
 	}
 
 	protocolMessage, err := certificates.Rot_client(string(eegg))
 	if err != nil {
 		logger.Infof("Client fail to get podMassage using egg:", err)
-		return
+		os.Exit(1)
 	}
 	jegg, err := json.Marshal(protocolMessage)
 	if err != nil {
 		logger.Infof("Fail to marshal egg:", err)
-		return
+		os.Exit(1)
 	}
-	err = os.WriteFile("/seal/podMessage", jegg, 0644)
+	err = os.WriteFile(podmessagepath, jegg, 0644)
 	if err != nil {
 		logger.Infof("Fail to create a file:", err)
-		return
+		os.Exit(1)
 	}
-	fmt.Println("Created /seal/podMessage")
+	logger.Infof("Created %s", podmessagepath)
 }

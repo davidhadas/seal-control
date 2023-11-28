@@ -31,20 +31,27 @@ import (
 
 func main() {
 	log.InitLog()
+	logger := log.Log
+
+	eggpath := os.Getenv("KO_DATA_PATH")
+	podmessagepath := "/seal/podMessage"
+	if eggpath == "" {
+		podmessagepath = "/tmp/podMessage"
+	}
 
 	var podMessage certificates.PodMessage
-	bytes, err := os.ReadFile("/seal/podMessage")
+	bytes, err := os.ReadFile(podmessagepath)
 	if err != nil {
-		fmt.Println("Fail to create a file:", err)
+		logger.Infof("fail to create a file: %v", err)
 		return
 	}
 	err = json.Unmarshal(bytes, &podMessage)
 	if err != nil {
-		fmt.Println("Failed to unmarshal body:", err)
+		logger.Infof("failed to unmarshal body: %v", err)
 		return
 	}
 	// Print the response body
-	fmt.Printf("podMessage OK\n")
+	logger.Infof("podMessage OK")
 
 	cert, caPool, err := certificates.GetTlsFromPodMessage(&podMessage)
 
@@ -69,30 +76,30 @@ func main() {
 }
 
 func client(mt *certificates.MutualTls) {
+	logger := log.Log
+
 	client := mt.Client()
-	fmt.Printf("Initiating client\n")
+	logger.Infof("Initiating client")
 
 	// Create an HTTP request with custom headers
 	req, err := http.NewRequest("GET", "https://127.0.0.1:8443", nil)
-	//req, err := http.NewRequest("GET", "http://127.0.0.1:8443", nil)
 	if err != nil {
-		fmt.Println("Error creating HTTP request:", err)
+		logger.Infof("error creating HTTP request: %v", err)
 		return
 	}
-	req.Header.Add("Authorization", "Bearer <token>")
 	req.Header.Add("Content-Type", "application/json")
 
 	// Send the HTTP request
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println("Error sending HTTP request:", err)
+		logger.Infof("error sending HTTP request: %v", err)
 		return
 	}
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Error reading HTTP response body:", err)
+		logger.Infof("error reading HTTP response body: %v", err)
 		return
 	}
 
@@ -110,11 +117,9 @@ func server(mt *certificates.MutualTls) {
 	mux.HandleFunc("/", process)
 
 	server := mt.Server(mux)
-	fmt.Printf("Initiating server\n")
-	//logger.Info("Initiating server2\n")
+	logger.Infof("initiating server")
 	err := server.ListenAndServeTLS("", "")
-	//err := server.ListenAndServe()
 	if err != nil {
-		logger.Fatal("ListenAndServeTLS", err)
+		logger.Fatal("failed ListenAndServeTLS", err)
 	}
 }

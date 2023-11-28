@@ -151,15 +151,17 @@ func server(caPool *x509.CertPool, cert *tls.Certificate, mt *MutualTls) {
 }
 
 func Rot_client(eegg string) (*PodMessage, error) {
+	logger := log.Log
+
 	e := InitEgg{}
 	err := e.Decode(eegg)
 	ccert, err := e.GetCert()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get cert from egg: %w\n", err)
+		return nil, fmt.Errorf("failed to get cert from egg: %w\n", err)
 	}
 	ccaPool, err := e.GetCaPool()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get cert from egg: %w\n", err)
+		return nil, fmt.Errorf("failed to get cert from egg: %w\n", err)
 	}
 	mtc := &MutualTls{
 		Cert:   ccert,
@@ -171,29 +173,28 @@ func Rot_client(eegg string) (*PodMessage, error) {
 
 	// Create an HTTP request with custom headers
 	req, err := http.NewRequest("POST", e.RotUrl, bytes.NewBuffer(e.EncPmr))
-	//req, err := http.NewRequest("POST", "https://192.168.68.102:3333/rot", bytes.NewBuffer(pmrBytes))
 	if err != nil {
-		return nil, fmt.Errorf("Error creating HTTP request: %w", err)
+		return nil, fmt.Errorf("error creating HTTP request: %w", err)
 	}
-	req.Header.Add("Authorization", "Bearer <token>")
 	req.Header.Add("Content-Type", "application/json")
 
 	// Send the HTTP request
+	logger.Infof("found egg, approching Rot")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Error sending HTTP request: %w", err)
+		return nil, fmt.Errorf("error sending HTTP request: %w", err)
 	}
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("Error reading HTTP response body: %w", err)
+		return nil, fmt.Errorf("error reading HTTP response body: %w", err)
 	}
 	fmt.Println(string(body))
 	var podMessage PodMessage
 	err = json.Unmarshal(body, &podMessage)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal body: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal body: %w", err)
 	}
 	return &podMessage, nil
 }
