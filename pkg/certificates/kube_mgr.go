@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
@@ -34,13 +35,23 @@ import (
 
 var KubeMgr *KubeMgrStruct
 
+const (
+	sealCtrlNamespace = "seal-control"
+)
+
 type KubeMgrStruct struct {
 	client            *kubernetes.Clientset
 	sealCtrlNamespace string
 	RotCaKeyRing      *KeyRing
 }
 
-func InitKubeMgr(sealCtrlNamespace string) error {
+func LoadRotCa() error {
+	var err error
+	KubeMgr.RotCaKeyRing, err = GetCA("")
+	return err
+}
+
+func InitKubeMgr() error {
 	var err error
 	KubeMgr = &KubeMgrStruct{
 		sealCtrlNamespace: sealCtrlNamespace,
@@ -68,25 +79,41 @@ func InitKubeMgr(sealCtrlNamespace string) error {
 	// Create a secrets client
 	KubeMgr.client, err = kubernetes.NewForConfig(kubeCfg)
 	if err != nil {
-		return fmt.Errorf("Failed to configure KubeAPi using config: %w\n", err)
-	}
-
-	KubeMgr.RotCaKeyRing, err = GetCA(KubeMgr, "")
-	if err != nil {
-		return fmt.Errorf("Failed to get a CA: %w", err)
+		return fmt.Errorf("Failed to configure KubeApi using config: %w\n", err)
 	}
 	return nil
 }
 
 func (kubeMgr *KubeMgrStruct) GetCa(workloadName string) (*v1.Secret, error) {
-	if len(workloadName) > 32 {
+	var err error
+	workloadName, err = processWorkloadname(workloadName)
+	if err != nil {
+		return nil, fmt.Errorf("Cant Get CA: %w ", err)
+	}
+	if len(workloadName) > 63 {
 		return nil, errors.New("workloadName too long")
 	}
 	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	return secrets.Get(context.Background(), workloadName, metav1.GetOptions{})
 }
 
+func (kubeMgr *KubeMgrStruct) DeleteCa(workloadName string) error {
+	var err error
+	workloadName, err = processWorkloadname(workloadName)
+	if err != nil {
+		return fmt.Errorf("Cant Delete CA: %w ", err)
+	}
+	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
+	secrets.Delete(context.Background(), workloadName, metav1.DeleteOptions{})
+	return nil
+}
+
 func (kubeMgr *KubeMgrStruct) CreateCa(workloadName string) (*v1.Secret, error) {
+	var err error
+	workloadName, err = processWorkloadname(workloadName)
+	if err != nil {
+		return nil, fmt.Errorf("Cant Delete CA: %w ", err)
+	}
 	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	s := corev1.Secret{}
 	s.Name = workloadName
@@ -98,4 +125,21 @@ func (kubeMgr *KubeMgrStruct) CreateCa(workloadName string) (*v1.Secret, error) 
 func (kubeMgr *KubeMgrStruct) UpdateCA(secret *v1.Secret) (*v1.Secret, error) {
 	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	return secrets.Update(context.Background(), secret, metav1.UpdateOptions{})
+}
+
+func (kubeMgr *KubeMgrStruct) ListCas() ([]string, error) {
+	result := make([]string, 0)
+
+	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
+	list, err := secrets.List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return result, err
+	}
+	for _, secret := range list.Items {
+		name := secret.Name
+		if strings.HasPrefix(name, "wl-") && len(name) > 3 {
+			result = append(result, secret.Name[3:])
+		}
+	}
+	return result, nil
 }

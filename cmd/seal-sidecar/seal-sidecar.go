@@ -59,9 +59,10 @@ func main() {
 		Cert:   cert,
 		CaPool: caPool,
 	}
-	mtc.AddPeer("mypod2")
-	mtc.AddPeer("my-pod")
-	mtc.AddPeer("mypod3")
+	mtc.AddPeer(podMessage.Name)
+	for _, server := range podMessage.Servers {
+		mtc.AddPeer(server)
+	}
 	go client(mtc)
 
 	mts := &certificates.MutualTls{
@@ -69,9 +70,11 @@ func main() {
 		Cert:     cert,
 		CaPool:   caPool,
 	}
-	mts.AddPeer("mypod2")
-	mts.AddPeer("my-pod")
-	mts.AddPeer("mypod3")
+	mts.AddPeer(podMessage.Name)
+	for _, client := range podMessage.Clients {
+		mts.AddPeer(client)
+	}
+
 	server(mts)
 }
 
@@ -82,7 +85,7 @@ func client(mt *certificates.MutualTls) {
 	logger.Infof("Initiating client")
 
 	// Create an HTTP request with custom headers
-	req, err := http.NewRequest("GET", "https://127.0.0.1:8443", nil)
+	req, err := http.NewRequest("GET", "https://127.0.0.1:9443", nil)
 	if err != nil {
 		logger.Infof("error creating HTTP request: %v", err)
 		return
@@ -116,7 +119,7 @@ func server(mt *certificates.MutualTls) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", process)
 
-	server := mt.Server(mux)
+	server := mt.Server(mux, ":9443")
 	logger.Infof("initiating server")
 	err := server.ListenAndServeTLS("", "")
 	if err != nil {

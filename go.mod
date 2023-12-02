@@ -1,6 +1,6 @@
 module github.com/davidhadas/seal-control
 
-go 1.20
+go 1.21
 
 require (
 	go.uber.org/zap v1.26.0

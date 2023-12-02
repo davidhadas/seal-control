@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/davidhadas/seal-control/pkg/log"
@@ -37,7 +38,9 @@ type MutualTls struct {
 }
 
 func (mt *MutualTls) AddPeer(name string) {
-	mt.Peers = append(mt.Peers, name)
+	if !slices.Contains(mt.Peers, name) {
+		mt.Peers = append(mt.Peers, name)
+	}
 }
 
 func (mt *MutualTls) Verify() func(cs tls.ConnectionState) error {
@@ -57,13 +60,9 @@ func (mt *MutualTls) Verify() func(cs tls.ConnectionState) error {
 
 		names := cs.PeerCertificates[0].DNSNames
 		for _, match := range names {
-			// Activator currently supports a single routingId which is the default "0"
-			// Working with other routingId is not yet implemented
-			for _, name := range mt.Peers {
-				if match == name {
-					logger.Infof("mTLS %s: peer verified as %s!\n", me, name)
-					return nil
-				}
+			if slices.Contains(mt.Peers, match) {
+				logger.Infof("mTLS %s: peer verified as %s!\n", me, match)
+				return nil
 			}
 		}
 
@@ -114,9 +113,6 @@ func client(caPool *x509.CertPool, cert *tls.Certificate, mt *MutualTls) {
 	fmt.Println(string(body))
 }
 
-func process(w http.ResponseWriter, _ *http.Request) {
-	fmt.Fprintf(w, "Hello")
-}
 func (mt *MutualTls) Client() *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
@@ -128,25 +124,13 @@ func (mt *MutualTls) Client() *http.Client {
 	}
 }
 
-func (mt *MutualTls) Server(mux *http.ServeMux) *http.Server {
+func (mt *MutualTls) Server(mux *http.ServeMux, address string) *http.Server {
 	return &http.Server{
 		Handler:           mux,
-		Addr:              ":8443",
+		Addr:              address,
 		ReadHeaderTimeout: 2 * time.Second,  // Slowloris attack
 		ReadTimeout:       10 * time.Second, // RUDY attack
 		TLSConfig:         mt.GetTlsConfig(),
-	}
-}
-
-func server(caPool *x509.CertPool, cert *tls.Certificate, mt *MutualTls) {
-	logger := log.Log
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", process)
-
-	server := mt.Server(mux)
-	err := server.ListenAndServeTLS("", "")
-	if err != nil {
-		logger.Fatal("ListenAndServeTLS", err)
 	}
 }
 
@@ -190,7 +174,6 @@ func Rot_client(eegg string) (*PodMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error reading HTTP response body: %w", err)
 	}
-	fmt.Println(string(body))
 	var podMessage PodMessage
 	err = json.Unmarshal(body, &podMessage)
 	if err != nil {
@@ -237,7 +220,7 @@ func Rot_service(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	caKeyRing, err := GetCA(KubeMgr, pmr.WorkloadName)
+	caKeyRing, err := GetCA(pmr.WorkloadName)
 	if err != nil {
 		logger.Infof("Failed to get a CA: %v\n", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)

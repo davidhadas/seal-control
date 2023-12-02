@@ -21,6 +21,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +37,8 @@ type KeyRing struct {
 	sKeys      map[int][]byte
 	certPem    *x509.Certificate
 	prkPem     *rsa.PrivateKey
+	rotUrl     string
+	peers      map[string]string
 }
 
 func NewKeyRing() *KeyRing {
@@ -42,6 +46,7 @@ func NewKeyRing() *KeyRing {
 		pKeys:      make(map[int][]byte),
 		certs:      make(map[int][]byte),
 		sKeys:      make(map[int][]byte),
+		peers:      make(map[string]string),
 		latestPKey: -1,
 		latestSKey: -1,
 		latestCert: -1,
@@ -87,6 +92,14 @@ func (kr *KeyRing) AddPrivateKeyAt(current int, privateKey []byte) error {
 	}
 	return nil
 }
+
+func (kr *KeyRing) AddPeer(subname string, servers string) error {
+	subname = strings.TrimPrefix(subname, ".")
+
+	kr.peers[subname] = servers
+	return nil
+}
+
 func (kr *KeyRing) AddSymetricKey(subname string, symenticKey []byte) error {
 	subname = strings.TrimPrefix(subname, ".")
 	current, err := strconv.Atoi(subname)
@@ -101,6 +114,11 @@ func (kr *KeyRing) AddSymetricKey(subname string, symenticKey []byte) error {
 
 func (kr *KeyRing) AppendSymetricKey(symenticKey []byte) error {
 	return kr.AddSymetricKeyAt(kr.latestSKey+1, symenticKey)
+}
+
+func (kr *KeyRing) SetPeer(client string, servers string) error {
+	kr.peers[client] = servers
+	return nil
 }
 
 func (kr *KeyRing) AddSymetricKeyAt(current int, symenticKey []byte) error {
@@ -160,21 +178,50 @@ func (kr *KeyRing) Add(name string, item []byte) error {
 	if strings.HasPrefix(name, CertName) {
 		err = kr.AddCert(strings.TrimPrefix(name, CertName), item)
 		if err != nil {
-			return fmt.Errorf("Error in keyRing add of name %s: %w", name, err)
+			return fmt.Errorf("Error adding cert %s: %w", name, err)
 		}
 		return nil
 	}
 	if strings.HasPrefix(name, SymetricKeyName) {
 		err = kr.AddSymetricKey(strings.TrimPrefix(name, SymetricKeyName), item)
 		if err != nil {
-			return fmt.Errorf("Error in keyRing add of name %s: %w", name, err)
+			return fmt.Errorf("Error adding symetricKey %s: %w", name, err)
 		}
 		return nil
 	}
 	if strings.HasPrefix(name, PrivateKeyName) {
 		err = kr.AddPrivateKey(strings.TrimPrefix(name, PrivateKeyName), item)
 		if err != nil {
-			return fmt.Errorf("Error in keyRing add of name %s: %w", name, err)
+			return fmt.Errorf("Error adding privateKey %s: %w", name, err)
+		}
+		return nil
+	}
+	if name == RotUrlName {
+		rotUrl := string(item)
+		_, err = url.ParseRequestURI(rotUrl)
+		if err != nil {
+			return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
+		}
+		u, err := url.Parse(rotUrl)
+		if err != nil {
+			return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
+		}
+		if u.Scheme != "https" {
+			return fmt.Errorf("ROT URL Scheme must be https")
+		}
+
+		_, _, err = net.SplitHostPort(u.Host)
+		if err != nil {
+			return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
+		}
+
+		kr.rotUrl = rotUrl
+		return nil
+	}
+	if strings.HasPrefix(name, PeerName) {
+		err = kr.AddPeer(strings.TrimPrefix(name, PeerName), string(item))
+		if err != nil {
+			return fmt.Errorf("Error adding peer for client %s: %w", name, err)
 		}
 		return nil
 	}
@@ -183,14 +230,17 @@ func (kr *KeyRing) Add(name string, item []byte) error {
 }
 
 func (kr *KeyRing) Consolidate() error {
+	if kr.rotUrl == "" {
+		return fmt.Errorf("missing rotUrl")
+	}
 	if kr.latestCert < 0 {
-		return fmt.Errorf("keyRing missing cert")
+		return fmt.Errorf("missing cert")
 	}
 	if kr.latestPKey < 0 {
-		return fmt.Errorf("keyRing missing private key")
+		return fmt.Errorf("missing private key")
 	}
 	if kr.latestSKey < 0 {
-		return fmt.Errorf("keyRing missing symetric key")
+		return fmt.Errorf("missing symetric key")
 	}
 
 	var err error
@@ -204,4 +254,24 @@ func (kr *KeyRing) Consolidate() error {
 	}
 
 	return nil
+}
+
+func (kr *KeyRing) NumSymetricKeys() int {
+	return len(kr.sKeys)
+}
+
+func (kr *KeyRing) NumPrivateKeys() int {
+	return len(kr.pKeys)
+}
+
+func (kr *KeyRing) NumCerts() int {
+	return len(kr.certs)
+}
+
+func (kr *KeyRing) RotUrl() string {
+	return kr.rotUrl
+}
+
+func (kr *KeyRing) Peers() map[string]string {
+	return kr.peers
 }

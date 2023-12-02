@@ -95,27 +95,44 @@ func (pmr *PodMessageReq) Decrypt(key []byte, ciphertext []byte) error {
 	return nil
 }
 
-func (pmr *PodMessageReq) Validate() error {
-	l := len(pmr.WorkloadName)
-	if l > 63 || l < 3 {
+func ValidateWorkloadName(workload string) error {
+	l := len(workload)
+	if l > 60 || l < 3 {
 		return errors.New("Ilegal workload name legth")
 	}
-	if !regexp.MustCompile(`^[a-z][a-z0-9\-]*$`).MatchString(pmr.WorkloadName) {
-		return errors.New(fmt.Sprintf("Ilegal workload characters - %s", pmr.WorkloadName))
+	if !regexp.MustCompile(`^[a-z][a-z0-9\-]*$`).MatchString(workload) {
+		return errors.New(fmt.Sprintf("Ilegal workload characters"))
 	}
-	l = len(pmr.PodName)
+	return nil
+}
+
+func ValidatePodName(podname string) error {
+	l := len(podname)
 	if l > 63 || l < 3 {
 		return errors.New("Ilegal pod name legth")
 	}
-	if !regexp.MustCompile(`^[a-z][a-z0-9\-]*$`).MatchString(pmr.PodName) {
+	if !regexp.MustCompile(`^[a-z][a-z0-9\-]*$`).MatchString(podname) {
 		return errors.New("Ilegal pod characters")
 	}
+	return nil
+}
 
+func (pmr *PodMessageReq) Validate() error {
+	err := ValidateWorkloadName(pmr.WorkloadName)
+	if err != nil {
+		return err
+	}
+	err = ValidatePodName(pmr.PodName)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 type PodMessage struct {
 	Name        string         `json:"name"`
+	Clients     []string       `json:"clients"`
+	Servers     []string       `json:"servers"`
 	CurrentWKey int            `json:"current"`
 	WorkloadKey map[int]string `json:"key"`
 	PrivateKey  string         `json:"prk"`
@@ -164,6 +181,14 @@ func (pm *PodMessage) GetCas() ([][]byte, error) {
 	return byteArrays, nil
 }
 
+func (pm *PodMessage) GetClients() []string {
+	return pm.Clients
+}
+
+func (pm *PodMessage) GetServers() []string {
+	return pm.Servers
+}
+
 func (pm *PodMessage) SetWorkloadKey(symetricKey []byte, index int) error {
 	if index < 0 {
 		return fmt.Errorf("ilegal index for workloadKey")
@@ -198,6 +223,14 @@ func (pm *PodMessage) SetCa(ca []byte) {
 	pm.Ca = append(pm.Ca, base64.StdEncoding.EncodeToString(ca))
 }
 
+func (pm *PodMessage) AddClient(client string) {
+	pm.Clients = append(pm.Clients, client)
+}
+
+func (pm *PodMessage) AddServer(server string) {
+	pm.Servers = append(pm.Servers, server)
+}
+
 func CreatePodMessage(caKeyRing *KeyRing, pmr *PodMessageReq) (*PodMessage, error) {
 	expirationInterval := time.Hour * 24 * 30 // 30 days
 	sans := []string{"any", strings.ToLower(pmr.PodName)}
@@ -228,6 +261,22 @@ func CreatePodMessage(caKeyRing *KeyRing, pmr *PodMessageReq) (*PodMessage, erro
 			err = podMessage.SetWorkloadKey(cert, index)
 			if err != nil {
 				return nil, fmt.Errorf("Cannot set workload key for pod %s: %w\n", pmr.PodName, err)
+			}
+		}
+	}
+	podMessage.AddClient(pmr.PodName)
+	podMessage.AddServer(pmr.PodName)
+	for client, servers := range caKeyRing.peers {
+		serverSlice := strings.Split(servers, ",")
+		if client == pmr.PodName {
+			for _, server := range serverSlice {
+				podMessage.AddServer(server)
+			}
+		} else {
+			for _, server := range serverSlice {
+				if server == pmr.PodName {
+					podMessage.AddServer(client)
+				}
 			}
 		}
 	}

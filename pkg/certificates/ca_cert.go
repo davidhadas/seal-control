@@ -27,7 +27,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/davidhadas/seal-control/pkg/log"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
@@ -37,9 +36,11 @@ const (
 	CertName             = "tls.crt"
 	PrivateKeyName       = "tls.key"
 	SymetricKeyName      = "sym.key"
+	RotUrlName           = "rot-url"
 	rotationThreshold    = 24 * time.Hour
 	caExpirationInterval = time.Hour * 24 * 365 * 10 // 10 years
 	RotCaName            = "rot-ca"
+	PeerName             = "peer"
 )
 
 var randReader = rand.Reader
@@ -121,17 +122,17 @@ func parseAndValidateCaSecret(secret *corev1.Secret) (*KeyRing, error) {
 	for keyname, value := range secret.Data {
 		err := keyRing.Add(keyname, value)
 		if err != nil {
-			return nil, fmt.Errorf("ilegal secret in parseAndValidateSecret: %w", err)
+			return nil, fmt.Errorf("ilegal secret: %w", err)
 		}
 	}
 	err := keyRing.Consolidate()
 	if err != nil {
-		return nil, fmt.Errorf("ilegal keyRing in parseAndValidateSecret: %v", err)
+		return nil, fmt.Errorf("malformed secret: %v", err)
 	}
 	return keyRing, nil
 }
 
-func commitUpdatedCaSecret(kubeMgr *KubeMgrStruct, secret *corev1.Secret, keys *KeyRing) error {
+func commitUpdatedCaSecret(secret *corev1.Secret, keys *KeyRing) error {
 	secret.Data = make(map[string][]byte, 6)
 	for index, symenticKey := range keys.sKeys {
 		secret.Data[fmt.Sprintf("%s.%d", SymetricKeyName, index)] = symenticKey
@@ -144,7 +145,14 @@ func commitUpdatedCaSecret(kubeMgr *KubeMgrStruct, secret *corev1.Secret, keys *
 	for index, privateKey := range keys.pKeys {
 		secret.Data[fmt.Sprintf("%s.%d", PrivateKeyName, index)] = privateKey
 	}
-	secret, err := kubeMgr.UpdateCA(secret)
+
+	secret.Data[RotUrlName] = []byte(keys.rotUrl)
+
+	for client, servers := range keys.peers {
+		secret.Data[fmt.Sprintf("%s.%s", PeerName, client)] = []byte(servers)
+	}
+
+	secret, err := KubeMgr.UpdateCA(secret)
 	return err
 }
 
@@ -185,22 +193,40 @@ func createSymentricKey(keyRing *KeyRing) error {
 	return nil
 }
 
-func GetCA(kubeMgr *KubeMgrStruct, workloadName string) (keyRing *KeyRing, errout error) {
-	logger := log.Log
-
+func processWorkloadname(workloadName string) (string, error) {
 	if workloadName == RotCaName {
-		return nil, fmt.Errorf("Ilegal workloadName")
+		return "", fmt.Errorf("Ilegal workloadName")
 	}
 	if workloadName == "" {
-		workloadName = RotCaName
+		return RotCaName, nil
 	}
+	if len(workloadName) > 60 {
+		return "", fmt.Errorf("workloadName too long")
+	}
+	return "wl-" + workloadName, nil
+}
+
+func CANotFound(workloadName string) bool {
+	var err error
 
 	// Certificate Authority
-	caSecret, err := kubeMgr.GetCa(workloadName)
+	_, err = KubeMgr.GetCa(workloadName)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Infof("secret is missing - lets create it\n")
-			caSecret, err = kubeMgr.CreateCa(workloadName)
+			return true
+		}
+	}
+	return false
+}
+
+func GetCA(workloadName string) (keyRing *KeyRing, errout error) {
+	var err error
+
+	// Certificate Authority
+	caSecret, err := KubeMgr.GetCa(workloadName)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("secret not found\n")
 		}
 	}
 	if err != nil {
@@ -208,108 +234,89 @@ func GetCA(kubeMgr *KubeMgrStruct, workloadName string) (keyRing *KeyRing, errou
 	}
 
 	// Check secret validity
-	keyRing, err = parseAndValidateCaSecret(caSecret)
+	return parseAndValidateCaSecret(caSecret)
+
+}
+func CreateNewCA(workloadName string, rotUrl string) (keyRing *KeyRing, errout error) {
+	var err error
+
+	// We need to generate a new CA cert, then shortcircuit the reconciler
+	keyRing = NewKeyRing()
+	err = createCACerts(keyRing, caExpirationInterval)
 	if err != nil {
-		logger.Infof("secret is missing the required keys - lets add it\n")
-
-		// We need to generate a new CA cert, then shortcircuit the reconciler
-
-		keyRing = NewKeyRing()
-		err = createCACerts(keyRing, caExpirationInterval)
-		if err != nil {
-			errout = fmt.Errorf("Cannot generate the keypair for the secret: %w\n", err)
-			return
-		}
-
-		err = createSymentricKey(keyRing)
-		if err != nil {
-			errout = fmt.Errorf("Cannot generate the keypair for the secret: %w\n", err)
-			return
-		}
-
-		err = keyRing.Consolidate()
-		if err != nil {
-			errout = fmt.Errorf("ilegal keyRing in createCACerts: %w", err)
-			return
-		}
-		err = commitUpdatedCaSecret(kubeMgr, caSecret, keyRing)
-		if err != nil {
-			errout = fmt.Errorf("Failed to commit the keypair for the secret: %w\n", err)
-			return
-		}
-
-		keyRing, err = parseAndValidateCaSecret(caSecret)
-		if err != nil {
-			errout = fmt.Errorf("Failed while validating keypair for secret: %w\n", err)
-			return
-		}
+		errout = fmt.Errorf("Cannot generate the keypair for the secret: %w\n", err)
+		return
 	}
-	logger.Infof("Done processing getCA\n")
+	err = keyRing.Add(RotUrlName, []byte(rotUrl))
+	if err != nil {
+		errout = err
+		return
+	}
+	_, err = KubeMgr.CreateCa(workloadName)
+	if err != nil {
+		errout = fmt.Errorf("Cannot generate secret: %w\n", err)
+		return
+	}
+	err = createSymentricKey(keyRing)
+	if err != nil {
+		errout = fmt.Errorf("Cannot generate secret: %w\n", err)
+		return
+	}
+	err = UpdateCA(workloadName, keyRing)
+	if err != nil {
+		errout = fmt.Errorf("Cannot udpate secret: %w\n", err)
+		return
+	}
 	return
 }
 
 func RenewCA(kubeMgr *KubeMgrStruct, workloadName string, keyRing *KeyRing) error {
 	var err error
-	logger := log.Log
 
 	err = createCACerts(keyRing, caExpirationInterval)
 	if err != nil {
 		return fmt.Errorf("Cannot generate the keypair for the secret: %w\n", err)
-
 	}
-	err = createSymentricKey(keyRing)
+
+	err = UpdateCA(workloadName, keyRing)
 	if err != nil {
-		return fmt.Errorf("Cannot generate the keypair for the secret: %w\n", err)
+		return fmt.Errorf("Fail to update secret: %w\n", err)
 	}
-
-	err = keyRing.Consolidate()
-	if err != nil {
-		return fmt.Errorf("ilegal keyRing in createCACerts: %w", err)
-	}
-	caSecret, err := kubeMgr.GetCa(workloadName)
-
-	if apierrors.IsNotFound(err) {
-		logger.Infof("secret is missing - lets create it\n")
-		caSecret, err = kubeMgr.CreateCa(workloadName)
-	}
-	if err != nil {
-		return fmt.Errorf("Error accessing secret: %w\n", err)
-	}
-
-	err = commitUpdatedCaSecret(kubeMgr, caSecret, keyRing)
-	if err != nil {
-		return fmt.Errorf("Failed to commit the keypair for the secret: %w\n", err)
-	}
-
-	keyRing, err = parseAndValidateCaSecret(caSecret)
-	if err != nil {
-		return fmt.Errorf("Failed while validating keypair for secret: %w\n", err)
-	}
-
-	logger.Infof("Done added new ca to secret\n")
 	return nil
 }
 
 func RenewSymetricKey(kubeMgr *KubeMgrStruct, workloadName string, keyRing *KeyRing) error {
 	var err error
-	logger := log.Log
 
 	err = createSymentricKey(keyRing)
 	if err != nil {
 		return fmt.Errorf("Cannot generate a new symetric key for the secret: %w\n", err)
 	}
 
-	caSecret, err := kubeMgr.GetCa(workloadName)
+	err = UpdateCA(workloadName, keyRing)
+	if err != nil {
+		return fmt.Errorf("Fail to update secret: %w\n", err)
+	}
+	return nil
+}
 
+func UpdateCA(workloadName string, keyRing *KeyRing) error {
+	var err error
+
+	err = keyRing.Consolidate()
+	if err != nil {
+		return fmt.Errorf("ilegal secret created: %w", err)
+	}
+
+	caSecret, err := KubeMgr.GetCa(workloadName)
 	if apierrors.IsNotFound(err) {
-		logger.Infof("secret is missing - lets create it\n")
-		caSecret, err = kubeMgr.CreateCa(workloadName)
+		return fmt.Errorf("Secret not found!")
 	}
 	if err != nil {
 		return fmt.Errorf("Error accessing secret: %w\n", err)
 	}
 
-	err = commitUpdatedCaSecret(kubeMgr, caSecret, keyRing)
+	err = commitUpdatedCaSecret(caSecret, keyRing)
 	if err != nil {
 		return fmt.Errorf("Failed to commit the keypair for the secret: %w\n", err)
 	}
@@ -318,7 +325,5 @@ func RenewSymetricKey(kubeMgr *KubeMgrStruct, workloadName string, keyRing *KeyR
 	if err != nil {
 		return fmt.Errorf("Failed while validating keypair for secret: %w\n", err)
 	}
-
-	logger.Infof("Done added new ca to secret\n")
 	return nil
 }

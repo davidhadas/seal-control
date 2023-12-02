@@ -21,9 +21,9 @@ import (
 	"github.com/davidhadas/seal-control/pkg/log"
 )
 
-func testPmr() {
-	log.InitLog()
+func testPmr() bool {
 	logger := log.Log
+	logger.Infof("--------> Starting testPmr")
 
 	pmr := &certificates.PodMessageReq{
 		WorkloadName: "my-workload",
@@ -32,12 +32,13 @@ func testPmr() {
 	encPmr, err := pmr.Encrypt([]byte("abcdef0123456789"))
 	if err != nil {
 		logger.Infof("Failed Encrypt PMR: %v\n", err)
-		return
+		return false
 	}
 	err = pmr.Decrypt([]byte("abcdef0123456789"), encPmr)
 	if err != nil {
 		logger.Infof("Failed Decrypt PMR:  %v\n", err)
-		return
+		return false
 	}
 	logger.Infof("PMR:  %v\n", pmr)
+	return true
 }

@@ -54,9 +54,9 @@ func CreateRot(rotKeyRing *KeyRing) (*tls.Certificate, *x509.CertPool, error) {
 	return &certificate, caCertPool, nil
 }
 
-func CreateInit(rotKeyRing *KeyRing, workloadName string, podName string, url string) (*InitEgg, error) {
+func CreateInit(rotKeyRing *KeyRing, workloadName string, podName string) (*InitEgg, error) {
 	initEgg := &InitEgg{
-		RotUrl: url,
+		RotUrl: rotKeyRing.rotUrl,
 	}
 
 	expirationInterval := time.Hour * 24 * 30 // 30 days

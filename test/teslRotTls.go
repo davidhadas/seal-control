@@ -21,27 +21,27 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	"github.com/davidhadas/seal-control/pkg/log"
 )
 
-func testRot() {
-	log.InitLog()
+func testRot() bool {
 	logger := log.Log
-
+	logger.Infof("--------> Starting testRot")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rot", certificates.Rot_service)
 
-	err := certificates.InitKubeMgr(sealCtrlNamespace)
+	err := certificates.LoadRotCa()
 	if err != nil {
-		logger.Infof("Failed to create a kubeMgr: %v\n", err)
-		return
+		logger.Infof("Failed to load ROT CA: %v", err)
+		return false
 	}
 	scert, scaPool, err := certificates.CreateRot(certificates.KubeMgr.RotCaKeyRing)
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %v\n", err)
-		return
+		return false
 	}
 	mts := &certificates.MutualTls{
 		IsServer: true,
@@ -49,39 +49,48 @@ func testRot() {
 		CaPool:   scaPool,
 	}
 	mts.AddPeer("init")
-
+	certificates.KubeMgr.DeleteCa("my-test-workload")
+	_, err = certificates.CreateNewCA("my-test-workload", "https://127.0.0.1:8443")
+	if err != nil {
+		logger.Infof("Failed to CreateNewCA: %v\n", err)
+		return false
+	}
 	// client
-	egg, err := certificates.CreateInit(certificates.KubeMgr.RotCaKeyRing, "my-test-workload", "init", "https://127.0.0.1:8443/")
+	egg, err := certificates.CreateInit(certificates.KubeMgr.RotCaKeyRing, "my-test-workload", "init")
 	if err != nil {
 		logger.Infof("Failed to CreateInit: %v\n", err)
-		return
+		return false
 	}
 	eegg, err := egg.Encode()
 	if err != nil {
 		logger.Infof("Failed to encode egg: %v\n", err)
-		return
+		return false
 	}
-	//fmt.Println(eegg)
 
-	go rot_client(eegg)
-	server(mts)
+	go server(mts, ":8443", certificates.Rot_service)
+	time.Sleep(time.Second)
+	ret := rot_client(eegg)
+	certificates.KubeMgr.DeleteCa("my-test-workload")
+	return ret
+
 }
 
-func rot_client(eegg string) {
+func rot_client(eegg string) bool {
 	protocolMessage, err := certificates.Rot_client(eegg)
 	if err != nil {
 		fmt.Println("Client fail to get podMassage using egg:", err)
-		return
+		return false
 	}
 	jegg, err := json.Marshal(protocolMessage)
 	if err != nil {
 		fmt.Println("Fail to marshal podMessage:", err)
-		return
+		return false
 	}
 	err = os.WriteFile("./podMessage", jegg, 0644)
 	if err != nil {
 		fmt.Println("Fail to create a file:", err)
-		return
+		return false
 	}
 	fmt.Println("Created /seal/podMessage")
+	return true
 }

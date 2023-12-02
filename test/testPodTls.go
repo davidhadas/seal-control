@@ -20,29 +20,38 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	"github.com/davidhadas/seal-control/pkg/log"
 )
 
-const (
-	sealCtrlNamespace = "seal-control"
-	caName            = "seal-ctrl-ca"
-)
-
-func testPod() {
-	log.InitLog()
+func testPod() bool {
 	logger := log.Log
+	logger.Infof("--------> Starting testPod")
 
-	err := certificates.InitKubeMgr(sealCtrlNamespace)
+	err := certificates.LoadRotCa()
 	if err != nil {
-		logger.Infof("Failed to create a kubeMgr: %v\n", err)
-		return
+		logger.Infof("Failed to load ROT CA: %v", err)
+		return false
 	}
-	caKeyRing, err := certificates.GetCA(certificates.KubeMgr, "my-workload-name")
+	certificates.KubeMgr.DeleteCa("my-workload-name")
+	caKeyRing, err := certificates.CreateNewCA("my-workload-name", "https://127.0.0.1:7443")
+	if err != nil {
+		logger.Infof("Failed to create a CA: %v\n", err)
+		return false
+	}
+
+	caKeyRing, err = certificates.GetCA("my-workload-name")
 	if err != nil {
 		logger.Infof("Failed to get a CA: %v\n", err)
-		return
+		return false
+	}
+
+	err = certificates.KubeMgr.DeleteCa("my-workload-name")
+	if err != nil {
+		logger.Infof("Failed to create a CA: %v\n", err)
+		return false
 	}
 	pmr := certificates.PodMessageReq{
 		PodName:      "my-pod",
@@ -52,22 +61,13 @@ func testPod() {
 	podMessage, err := certificates.CreatePodMessage(caKeyRing, &pmr)
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %v\n", err)
-		return
+		return false
 	}
 	logger.Infof("Done processing secret\n")
 	//certificates.RenewCA(kubeMgr, caKeyRing)
 	//certificates.RenewCA(kubeMgr, caKeyRing)
 	//certificates.RenewSymetricKey(kubeMgr, caKeyRing)
 	cert, caPool, err := certificates.GetTlsFromPodMessage(podMessage)
-
-	mtc := &certificates.MutualTls{
-		Cert:   cert,
-		CaPool: caPool,
-	}
-	mtc.AddPeer("mypod2")
-	mtc.AddPeer("my-pod")
-	mtc.AddPeer("mypod3")
-	go client(mtc)
 
 	mts := &certificates.MutualTls{
 		IsServer: true,
@@ -77,14 +77,28 @@ func testPod() {
 	mts.AddPeer("mypod2")
 	mts.AddPeer("my-pod")
 	mts.AddPeer("mypod3")
-	server(mts)
+
+	mtc := &certificates.MutualTls{
+		Cert:   cert,
+		CaPool: caPool,
+	}
+	mtc.AddPeer("mypod2")
+	mtc.AddPeer("my-pod")
+	mtc.AddPeer("mypod3")
+
+	go server(mts, ":7443", handler)
+	time.Sleep(time.Second)
+	client(mtc)
+
+	certificates.KubeMgr.DeleteCa("my-workload-name")
+	return true
 }
 
 func client(mt *certificates.MutualTls) {
 	client := mt.Client()
 
 	// Create an HTTP request with custom headers
-	req, err := http.NewRequest("GET", "https://127.0.0.1:8443", nil)
+	req, err := http.NewRequest("GET", "https://127.0.0.1:7443", nil)
 	if err != nil {
 		fmt.Println("Error creating HTTP request:", err)
 		return
@@ -110,12 +124,16 @@ func client(mt *certificates.MutualTls) {
 	fmt.Println(string(body))
 }
 
-func server(mt *certificates.MutualTls) {
+func handler(w http.ResponseWriter, _ *http.Request) {
+	fmt.Fprintf(w, "Hello")
+}
+
+func server(mt *certificates.MutualTls, address string, handler func(http.ResponseWriter, *http.Request)) {
 	logger := log.Log
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", certificates.Rot_service)
+	mux.HandleFunc("/", handler)
 
-	server := mt.Server(mux)
+	server := mt.Server(mux, address)
 	logger.Infoln("Server started")
 	err := server.ListenAndServeTLS("", "")
 	if err != nil {

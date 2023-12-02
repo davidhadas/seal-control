@@ -34,7 +34,7 @@ func main() {
 	eggpath := os.Getenv("KO_DATA_PATH")
 	podmessagepath := "/seal/podMessage"
 	if eggpath == "" {
-		eggpath = "./kodata"
+		eggpath = "./cmd/seal-init/kodata"
 		podmessagepath = "/tmp/podMessage"
 	}
 	eggpath = filepath.Join(eggpath, "egg.txt")

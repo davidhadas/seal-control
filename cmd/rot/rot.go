@@ -17,15 +17,10 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	"github.com/davidhadas/seal-control/pkg/log"
-)
-
-const (
-	sealCtrlNamespace = "seal-control"
 )
 
 // WIP
@@ -38,9 +33,14 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rot", certificates.Rot_service)
 
-	err = certificates.InitKubeMgr(sealCtrlNamespace)
+	err = certificates.InitKubeMgr()
 	if err != nil {
 		logger.Infof("Failed to create a kubeMgr: %v\n", err)
+		return
+	}
+	err = certificates.LoadRotCa()
+	if err != nil {
+		logger.Infof("Failed to load ROT CA: %v", err)
 		return
 	}
 
@@ -49,17 +49,6 @@ func main() {
 		logger.Infof("Failed to CreatePodMessage: %v\n", err)
 		return
 	}
-	egg, err := certificates.CreateInit(certificates.KubeMgr.RotCaKeyRing, "my-workload", "my-pod", "https://192.168.68.102:8443/rot")
-	if err != nil {
-		logger.Infof("Failed to CreateInit: %v\n", err)
-		return
-	}
-	eegg, err := egg.Encode()
-	if err != nil {
-		logger.Infof("Failed to encode egg: %v\n", err)
-		return
-	}
-	fmt.Println(eegg)
 
 	mts := &certificates.MutualTls{
 		IsServer: true,
@@ -68,7 +57,7 @@ func main() {
 	}
 	mts.AddPeer("init")
 
-	server := mts.Server(mux)
+	server := mts.Server(mux, ":8443")
 	err = server.ListenAndServeTLS("", "")
 	if err != nil {
 		logger.Fatal("ListenAndServeTLS", err)

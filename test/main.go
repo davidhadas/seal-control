@@ -16,8 +16,27 @@ limitations under the License.
 
 package main
 
+import (
+	"github.com/davidhadas/seal-control/pkg/certificates"
+	"github.com/davidhadas/seal-control/pkg/log"
+)
+
 func main() {
-	testPmr()
-	//testRot()
-	//testPod()
+	log.InitLog()
+	logger := log.Log
+
+	err := certificates.InitKubeMgr()
+	if err != nil {
+		logger.Infof("Failed to create a kubeMgr: %v\n", err)
+		return
+	}
+
+	if testPod() &&
+		testPmr() &&
+		testRot() {
+		logger.Infof("SUCESS!!!")
+		return
+	}
+	logger.Infof("FAIL!!!")
+
 }
