@@ -56,6 +56,7 @@ func main() {
 		CaPool:   caPool,
 	}
 	mts.AddPeer("init")
+	logger.Infof("Starting rot serices\n")
 
 	server := mts.Server(mux, ":8443")
 	err = server.ListenAndServeTLS("", "")

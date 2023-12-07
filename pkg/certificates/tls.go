@@ -58,6 +58,17 @@ func (mt *MutualTls) Verify() func(cs tls.ConnectionState) error {
 			return fmt.Errorf("mTLS %s: Failed to verify connection. Certificate is missing", me)
 		}
 
+		opts := x509.VerifyOptions{
+			Roots:   mt.CaPool,
+			DNSName: "any",
+		}
+
+		_, err := cs.PeerCertificates[0].Verify(opts)
+		if err != nil {
+			logger.Infof("mTLS %s: Failed to verify - Looking for: valid certifdicate: %v\n", err)
+			return fmt.Errorf("mTLS %s: Failed to verify - Looking for: valid certifdicate: %v\n", err)
+		}
+
 		names := cs.PeerCertificates[0].DNSNames
 		for _, match := range names {
 			if slices.Contains(mt.Peers, match) {
@@ -73,13 +84,16 @@ func (mt *MutualTls) Verify() func(cs tls.ConnectionState) error {
 
 func (mt *MutualTls) GetTlsConfig() *tls.Config {
 	return &tls.Config{
-		InsecureSkipVerify: false,
+		InsecureSkipVerify: true,
 		ClientAuth:         tls.RequireAndVerifyClientCert,
-		ServerName:         "any",
-		RootCAs:            mt.CaPool,
-		ClientCAs:          mt.CaPool,
-		Certificates:       []tls.Certificate{*mt.Cert},
-		VerifyConnection:   mt.Verify(),
+		// SNI under Route passthrough:
+		// Setting ServerName results in an alternative certificate being returned
+		// Setting ServerName to an empty string sets it to equal the hostname by go tls client
+		ServerName:       "",
+		RootCAs:          mt.CaPool,
+		ClientCAs:        mt.CaPool,
+		Certificates:     []tls.Certificate{*mt.Cert},
+		VerifyConnection: mt.Verify(),
 	}
 }
 
@@ -139,6 +153,9 @@ func Rot_client(eegg string) (*PodMessage, error) {
 
 	e := InitEgg{}
 	err := e.Decode(eegg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decodeegg: %w\n", err)
+	}
 	ccert, err := e.GetCert()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cert from egg: %w\n", err)
@@ -177,6 +194,7 @@ func Rot_client(eegg string) (*PodMessage, error) {
 	var podMessage PodMessage
 	err = json.Unmarshal(body, &podMessage)
 	if err != nil {
+		fmt.Printf("body: %s", string(body))
 		return nil, fmt.Errorf("failed to unmarshal body: %w", err)
 	}
 	return &podMessage, nil

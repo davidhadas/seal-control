@@ -91,6 +91,11 @@ func wl() {
 			fmt.Printf("Ilegal workload name: %v\n", err)
 			return
 		}
+		if os.Args[3] == "init" {
+			rotUrl := certificates.KubeMgr.RotCaKeyRing.RotUrl()
+			wl_init(workload, rotUrl)
+			return
+		}
 		_, err := certificates.GetCA(workload)
 		if err != nil {
 			fmt.Printf("Failed to load workload CA: %v\n", err)
@@ -98,10 +103,6 @@ func wl() {
 			return
 		}
 		switch os.Args[3] {
-		case "init":
-			rotUrl := certificates.KubeMgr.RotCaKeyRing.RotUrl()
-			wl_init(workload, rotUrl)
-			return
 		case "del", "delete":
 			wl_del(workload)
 			return
@@ -124,13 +125,13 @@ func wl() {
 		}
 		switch os.Args[3] {
 		case "egg":
-			podname := os.Args[4]
-			err = certificates.ValidatePodName(podname)
+			servicename := os.Args[4]
+			err = certificates.ValidatePodName(servicename)
 			if err != nil {
 				fmt.Printf("Ilegal pod name: %v\n", err)
 				return
 			}
-			wl_egg(workload, podname)
+			wl_egg(workload, servicename)
 			return
 		}
 	case numArgs > 5:
@@ -241,8 +242,8 @@ func wl_del(workload string) {
 	}
 }
 
-func wl_egg(workload string, podname string) {
-	egg, err := certificates.CreateInit(certificates.KubeMgr.RotCaKeyRing, workload, podname)
+func wl_egg(workload string, servicename string) {
+	egg, err := certificates.CreateInit(certificates.KubeMgr.RotCaKeyRing, workload, servicename)
 	if err != nil {
 		fmt.Printf("Failed to create egg: %v\n", err)
 		return

@@ -1,17 +1,29 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: myapp-pod
+  name: myapp
   labels:
     app.kubernetes.io/name: MyApp
 spec:
   containers:
-  - name: seal-sidecar
-    image: ko://github.com/davidhadas/seal-control/cmd/seal-sidecar
+  - name: seal-server
+    image: ko://github.com/davidhadas/seal-control/cmd/seal-server
     imagePullPolicy: IfNotPresent
     volumeMounts:
       - name: shared-volume
         mountPath: /seal
+    env:
+    - name: HOSTNAME
+      value: "myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"
+  - name: seal-client
+    image: ko://github.com/davidhadas/seal-control/cmd/seal-client
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - name: shared-volume
+        mountPath: /seal
+    env:
+    - name: URL
+      value: "https://127.0.0.1:9443"
   initContainers:
   - name: seal-init
     image: ko://github.com/davidhadas/seal-control/cmd/seal-init
@@ -22,3 +34,36 @@ spec:
   volumes:
     - name: shared-volume
       emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: MyApp
+  name: myapp
+spec:
+  selector:
+    app.kubernetes.io/name: MyApp
+  ports:
+  - port: 9443
+    protocol: TCP
+    targetPort: 9443
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  annotations:
+    openshift.io/host.generated: "true"
+  labels:
+    app.kubernetes.io/name: MyApp
+  name: myapp
+  namespace: default
+spec:
+  host: myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud
+  tls:
+    termination: passthrough 
+  to:
+    kind: Service
+    name: myapp
+    weight: 100
+  wildcardPolicy: None

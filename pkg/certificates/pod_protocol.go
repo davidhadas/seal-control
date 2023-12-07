@@ -106,12 +106,12 @@ func ValidateWorkloadName(workload string) error {
 	return nil
 }
 
-func ValidatePodName(podname string) error {
-	l := len(podname)
+func ValidatePodName(servicename string) error {
+	l := len(servicename)
 	if l > 63 || l < 3 {
 		return errors.New("Ilegal pod name legth")
 	}
-	if !regexp.MustCompile(`^[a-z][a-z0-9\-]*$`).MatchString(podname) {
+	if !regexp.MustCompile(`^[a-z][a-z0-9\-]*$`).MatchString(servicename) {
 		return errors.New("Ilegal pod characters")
 	}
 	return nil
@@ -233,6 +233,7 @@ func (pm *PodMessage) AddServer(server string) {
 
 func CreatePodMessage(caKeyRing *KeyRing, pmr *PodMessageReq) (*PodMessage, error) {
 	expirationInterval := time.Hour * 24 * 30 // 30 days
+	//sans := []string{"any", strings.ToLower(pmr.PodName), "myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"}
 	sans := []string{"any", strings.ToLower(pmr.PodName)}
 
 	podMessage := NewPodMessage(pmr.PodName)

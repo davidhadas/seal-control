@@ -60,6 +60,9 @@ func sys() {
 		case "init":
 			sys_init(os.Args[3])
 			return
+		case "url":
+			sys_url(os.Args[3])
+			return
 		}
 	}
 	sys_help()
@@ -83,6 +86,25 @@ func sys_init(rotUrl string) {
 	fmt.Printf("  Certs:        %d\n", certificates.KubeMgr.RotCaKeyRing.NumCerts())
 	fmt.Printf("  PrivateKeys:  %d\n", certificates.KubeMgr.RotCaKeyRing.NumPrivateKeys())
 	fmt.Printf("  SymetricKeys: %d\n", certificates.KubeMgr.RotCaKeyRing.NumSymetricKeys())
+}
+
+func sys_url(rotUrl string) {
+	err := certificates.LoadRotCa()
+	if err != nil {
+		fmt.Printf("Failed to load ROT CA: %v\n", err)
+		fmt.Printf("Initialize ROT CA using\n\t`sys init <ROT-URL>`\n")
+		return
+	}
+
+	err = certificates.KubeMgr.RotCaKeyRing.SetRotUrl(rotUrl)
+	if err != nil {
+		fmt.Printf("%v", err)
+		return
+	}
+	err = certificates.UpdateCA("", certificates.KubeMgr.RotCaKeyRing)
+	if err != nil {
+		fmt.Printf("Failed to update ROT CA: %v\n", err)
+	}
 }
 
 func sys_del() {
@@ -124,5 +146,5 @@ func sys_help() {
 	fmt.Printf("  seal sys\n")
 	fmt.Printf("  seal sys del\n")
 	fmt.Printf("  seal sys init <ROT-URL>\n")
-
+	fmt.Printf("  seal sys url <ROT-URL>\n")
 }

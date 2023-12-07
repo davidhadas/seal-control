@@ -149,6 +149,28 @@ func (kr *KeyRing) AppendCert(cert []byte) error {
 	return kr.AddCertAt(kr.latestCert+1, cert)
 }
 
+func (kr *KeyRing) SetRotUrl(rotUrl string) error {
+	_, err := url.ParseRequestURI(rotUrl)
+	if err != nil {
+		return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
+	}
+	u, err := url.Parse(rotUrl)
+	if err != nil {
+		return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("ROT URL Scheme must be https")
+	}
+
+	_, _, err = net.SplitHostPort(u.Host)
+	if err != nil {
+		return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
+	}
+
+	kr.rotUrl = rotUrl
+	return nil
+}
+
 func (kr *KeyRing) AddCertAt(current int, cert []byte) error {
 	if len(cert) < 16 {
 		return fmt.Errorf("ilegal cert bytes")
@@ -198,25 +220,7 @@ func (kr *KeyRing) Add(name string, item []byte) error {
 	}
 	if name == RotUrlName {
 		rotUrl := string(item)
-		_, err = url.ParseRequestURI(rotUrl)
-		if err != nil {
-			return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
-		}
-		u, err := url.Parse(rotUrl)
-		if err != nil {
-			return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
-		}
-		if u.Scheme != "https" {
-			return fmt.Errorf("ROT URL Scheme must be https")
-		}
-
-		_, _, err = net.SplitHostPort(u.Host)
-		if err != nil {
-			return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
-		}
-
-		kr.rotUrl = rotUrl
-		return nil
+		return kr.SetRotUrl(rotUrl)
 	}
 	if strings.HasPrefix(name, PeerName) {
 		err = kr.AddPeer(strings.TrimPrefix(name, PeerName), string(item))

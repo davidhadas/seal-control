@@ -1,0 +1,57 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: seal-control
+  name: secret-reader
+rules:
+- apiGroups: [""] 
+  resources: ["secrets"]
+  verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+# This role binding allows "jane" to read pods in the "default" namespace.
+# You need to already have a Role named "pod-reader" in that namespace.
+kind: RoleBinding
+metadata:
+  name: secret-reader
+  namespace: seal-control
+subjects:
+# You can specify more than one "subject"
+- kind: ServiceAccount
+  name: default
+  namespace: seal-control
+roleRef:
+  kind: Role 
+  name: secret-reader
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rot
+  namespace: seal-control
+  labels:
+    app.kubernetes.io/name: RoT
+spec:
+  containers:
+  - name: rot
+    image: ko://github.com/davidhadas/seal-control/cmd/rot
+    imagePullPolicy: IfNotPresent
+    ports:
+    - containerPort: 8443
+  imagePullSecrets:
+  - name: all-icr-io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: RoT
+  name: rot
+  namespace: seal-control
+spec:
+  selector:
+    app.kubernetes.io/name: RoT
+  ports:
+  - port: 8443
+    protocol: TCP
+    targetPort: 8443

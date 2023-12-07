@@ -34,6 +34,11 @@ func main() {
 	log.InitLog()
 	logger := log.Log
 
+	url := os.Getenv("URL")
+	if url == "" {
+		url = "https://127.0.0.1:9443"
+	}
+
 	eggpath := os.Getenv("KO_DATA_PATH")
 	podmessagepath := "/seal/podMessage"
 	if eggpath == "" {
@@ -65,27 +70,18 @@ func main() {
 		mtc.AddPeer(server)
 	}
 	//go client(mtc, "https://127.0.0.1:9443")
-	go client(mtc, "https://myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud/")
-
-	mts := &certificates.MutualTls{
-		IsServer: true,
-		Cert:     cert,
-		CaPool:   caPool,
-	}
-	mts.AddPeer(podMessage.Name)
-	for _, client := range podMessage.Clients {
-		mts.AddPeer(client)
-	}
-
-	server(mts)
+	//go client(mtc, "https://myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud/")
+	go client(mtc, url)
 }
 
 func client(mt *certificates.MutualTls, address string) {
 	logger := log.Log
 
-	time.Sleep(time.Second)
+	logger.Infof("Sleep waiting for server to come up")
+	time.Sleep(5 * time.Second)
+	logger.Infof("Initiating client to %s", address)
+
 	client := mt.Client()
-	logger.Infof("Initiating client %s\n", address)
 
 	// Create an HTTP request with custom headers
 	req, err := http.NewRequest("GET", address, nil)
@@ -111,24 +107,5 @@ func client(mt *certificates.MutualTls, address string) {
 
 	// Print the response body
 	fmt.Println(string(body))
-}
-
-func process(w http.ResponseWriter, _ *http.Request) {
-	logger := log.Log
-	logger.Infof("Server processing request")
-
-	fmt.Fprintf(w, "Hello")
-}
-
-func server(mt *certificates.MutualTls) {
-	logger := log.Log
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", process)
-
-	server := mt.Server(mux, ":9443")
-	logger.Infof("initiating server")
-	err := server.ListenAndServeTLS("", "")
-	if err != nil {
-		logger.Fatal("failed ListenAndServeTLS", err)
-	}
+	logger.Infof("The End!")
 }
