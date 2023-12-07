@@ -27,8 +27,6 @@ import (
 	"github.com/davidhadas/seal-control/pkg/log"
 )
 
-//WIP
-
 func main() {
 	log.InitLog()
 	logger := log.Log
