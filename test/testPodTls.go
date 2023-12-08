@@ -53,12 +53,9 @@ func testPod() bool {
 		logger.Infof("Failed to create a CA: %v\n", err)
 		return false
 	}
-	pmr := certificates.PodMessageReq{
-		PodName:      "my-pod",
-		WorkloadName: "my-workload-name",
-	}
+	pmr := certificates.NewPodMessageReq("my-workload", "my-pod")
 
-	podMessage, err := certificates.CreatePodMessage(caKeyRing, &pmr)
+	podMessage, err := certificates.CreatePodMessage(caKeyRing, pmr)
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %v\n", err)
 		return false

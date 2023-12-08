@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	"github.com/davidhadas/seal-control/pkg/log"
@@ -30,13 +29,6 @@ import (
 func main() {
 	log.InitLog()
 	logger := log.Log
-
-	hostname := os.Getenv("HOSTNAME")
-	if strings.Contains(hostname, ".") {
-		logger.Infof("Ilegal hostname: %s", hostname)
-		logger.Infof("Hostname must structured, e.g. 'myservice.example.com'")
-		return
-	}
 
 	eggpath := os.Getenv("KO_DATA_PATH")
 	podmessagepath := "/seal/podMessage"
@@ -66,9 +58,6 @@ func main() {
 		CaPool:   caPool,
 	}
 	mts.AddPeer(podMessage.Name)
-	if hostname == "" {
-		mts.AddPeer(hostname)
-	}
 	for _, client := range podMessage.Clients {
 		mts.AddPeer(client)
 	}
@@ -85,6 +74,8 @@ func process(w http.ResponseWriter, _ *http.Request) {
 
 func server(mt *certificates.MutualTls) {
 	logger := log.Log
+
+	logger.Infof("server with sans: %v", mt.Peers)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", process)
 

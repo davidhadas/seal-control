@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -60,6 +61,7 @@ func createCertTemplate(expirationInterval time.Duration, sans []string) (*x509.
 		NotAfter:              time.Now().Add(expirationInterval),
 		BasicConstraintsValid: true,
 		DNSNames:              sans,
+		IPAddresses:           []net.IP{net.IPv4(127, 0, 0, 1)},
 	}
 	return &tmpl, nil
 }

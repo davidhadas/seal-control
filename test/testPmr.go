@@ -25,16 +25,14 @@ func testPmr() bool {
 	logger := log.Log
 	logger.Infof("--------> Starting testPmr")
 
-	pmr := &certificates.PodMessageReq{
-		WorkloadName: "my-workload",
-		PodName:      "my-pod",
-	}
-	encPmr, err := pmr.Encrypt([]byte("abcdef0123456789"))
+	pmr := certificates.NewPodMessageReq("my-workload", "my-pod")
+
+	err := pmr.Encrypt([]byte("abcdef0123456789"))
 	if err != nil {
 		logger.Infof("Failed Encrypt PMR: %v\n", err)
 		return false
 	}
-	err = pmr.Decrypt([]byte("abcdef0123456789"), encPmr)
+	err = pmr.Decrypt([]byte("abcdef0123456789"))
 	if err != nil {
 		logger.Infof("Failed Decrypt PMR:  %v\n", err)
 		return false

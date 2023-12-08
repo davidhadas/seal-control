@@ -68,15 +68,16 @@ func testRot() bool {
 	}
 
 	go server(mts, ":8443", certificates.Rot_service)
+
 	time.Sleep(time.Second)
-	ret := rot_client(eegg)
+	ret := rot_client(eegg, []string{"xyz.xyz", "z1.z3"})
 	certificates.KubeMgr.DeleteCa("my-test-workload")
 	return ret
 
 }
 
-func rot_client(eegg string) bool {
-	protocolMessage, err := certificates.Rot_client(eegg)
+func rot_client(eegg string, hostnames []string) bool {
+	protocolMessage, err := certificates.Rot_client(eegg, hostnames)
 	if err != nil {
 		fmt.Println("Client fail to get podMassage using egg:", err)
 		return false

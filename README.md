@@ -20,6 +20,10 @@ For m2m communication patterns across cloud bounderies, set the Kubernetes servi
 External clients runing on a trusted cluster may also use mTLS to communicate with the pods on remote untrusted clusters by obtaining certificates signed by the workload CA from the ROT. 
 
 
+#TBD
+1. Can we avoid duplicating rotURL from RotCA to all WorkloadCAs?
+1. 
+
 ## Https or HTTP between a standard external client and the workload pods
 For use cases where standard external clients (such as browsers) need to communicate with the workload, all standard communication patterns are supported. It is up to the workload owner to consider the security implications of any data sent to, or received from, such cleints.   
 

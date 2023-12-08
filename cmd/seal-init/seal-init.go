@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	"github.com/davidhadas/seal-control/pkg/log"
@@ -31,6 +32,7 @@ func main() {
 	log.InitLog()
 	logger := log.Log
 
+	logger.Infof("\t*** SEAL INIT ***")
 	eggpath := os.Getenv("KO_DATA_PATH")
 	podmessagepath := "/seal/podMessage"
 	if eggpath == "" {
@@ -45,7 +47,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	protocolMessage, err := certificates.Rot_client(string(eegg))
+	hostnames := os.Getenv("HOSTNAMES")
+	logger.Infof("hostnames %s", hostnames)
+	hsplits := strings.Split(hostnames, ",")
+	logger.Infof("hsplits %v", hsplits)
+	for _, h := range hsplits {
+		logger.Infof("hostname %s", h)
+		if err := certificates.ValidateHostname(h); err != nil {
+			logger.Infof("%v", err)
+			return
+		}
+	}
+
+	protocolMessage, err := certificates.Rot_client(string(eegg), hsplits)
 	if err != nil {
 		logger.Infof("Client fail to get podMassage using egg:", err)
 		os.Exit(1)

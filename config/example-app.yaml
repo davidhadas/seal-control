@@ -12,9 +12,6 @@ spec:
     volumeMounts:
       - name: shared-volume
         mountPath: /seal
-    env:
-    - name: HOSTNAME
-      value: "myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"
   - name: seal-client
     image: ko://github.com/davidhadas/seal-control/cmd/seal-client
     imagePullPolicy: IfNotPresent
@@ -31,9 +28,12 @@ spec:
     volumeMounts:
       - name: shared-volume
         mountPath: /seal
+    env:
+    - name: HOSTNAMES
+      value: "myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"
   volumes:
-    - name: shared-volume
-      emptyDir: {}
+  - name: shared-volume
+    emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

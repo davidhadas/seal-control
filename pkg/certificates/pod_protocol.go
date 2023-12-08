@@ -34,18 +34,33 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davidhadas/seal-control/pkg/log"
+
 	"golang.org/x/crypto/hkdf"
 )
 
-type PodMessageReq struct {
+type PodMessageReqSecret struct {
 	PodName      string // Lower case, Allocated by KMS, Stored in the encrypted init image
 	WorkloadName string // Lower case, Allocated by KMS, stored in the encrypted init image
 }
 
-func (pmr *PodMessageReq) Encrypt(key []byte) ([]byte, error) {
-	jpmr, err := json.Marshal(pmr)
+type PodMessageReq struct {
+	secret    PodMessageReqSecret // Unencrypted Secret
+	Secret    []byte              // Encrupted Secret
+	Hostnames []string            // more names requested for the certificate
+}
+
+func NewPodMessageReq(workloadName string, podName string) *PodMessageReq {
+	pmr := &PodMessageReq{}
+	pmr.secret.PodName = podName
+	pmr.secret.WorkloadName = workloadName
+	return pmr
+}
+
+func (pmr *PodMessageReq) Encrypt(key []byte) error {
+	jpmr, err := json.Marshal(pmr.secret)
 	if err != nil {
-		return nil, fmt.Errorf("fail to mareshal: %w", err)
+		return fmt.Errorf("fail to mareshal: %w", err)
 	}
 
 	block, err := aes.NewCipher(key)
@@ -56,24 +71,27 @@ func (pmr *PodMessageReq) Encrypt(key []byte) ([]byte, error) {
 	padding := aes.BlockSize - len(jpmr)%aes.BlockSize
 	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
 	plaintext := append(jpmr, padtext...)
-	result := make([]byte, len(plaintext)+aes.BlockSize)
+	pmr.Secret = make([]byte, len(plaintext)+aes.BlockSize)
 
-	iv := result[:aes.BlockSize]
-	ciphertext := result[aes.BlockSize:]
+	iv := pmr.Secret[:aes.BlockSize]
+	ciphertext := pmr.Secret[aes.BlockSize:]
 	_, err = rand.Read(iv)
 	if err != nil {
-		return nil, fmt.Errorf("fail to create iv: %w", err)
+		return fmt.Errorf("fail to create iv: %w", err)
 	}
 
 	ecb := cipher.NewCBCEncrypter(block, iv)
 	ecb.CryptBlocks(ciphertext, plaintext)
 
-	return result, nil
+	return nil
 }
 
-func (pmr *PodMessageReq) Decrypt(key []byte, ciphertext []byte) error {
-	iv := ciphertext[:aes.BlockSize]
-	ciphertext = ciphertext[aes.BlockSize:]
+func (pmr *PodMessageReq) Decrypt(key []byte) error {
+	if len(pmr.Secret) < 2*aes.BlockSize {
+		return fmt.Errorf("Secret seems empty or corrupted")
+	}
+	iv := pmr.Secret[:aes.BlockSize]
+	ciphertext := pmr.Secret[aes.BlockSize:]
 
 	length := len(ciphertext)
 	plaintext := make([]byte, length)
@@ -88,7 +106,7 @@ func (pmr *PodMessageReq) Decrypt(key []byte, ciphertext []byte) error {
 	padding := plaintext[len(plaintext)-1]
 	jpmr := plaintext[:len(plaintext)-int(padding)]
 
-	err = json.Unmarshal(jpmr, pmr)
+	err = json.Unmarshal(jpmr, &pmr.secret)
 	if err != nil {
 		return fmt.Errorf("fail to unmareshal: %w", err)
 	}
@@ -117,15 +135,30 @@ func ValidatePodName(servicename string) error {
 	return nil
 }
 
+func ValidateHostname(hostname string) error {
+	if hostname != "" {
+		if !strings.Contains(hostname, ".") {
+			return fmt.Errorf("Ilegal hostname: %s - must structured, e.g. 'myservice.example.com'", hostname)
+		}
+	}
+	return nil
+}
+
 func (pmr *PodMessageReq) Validate() error {
-	err := ValidateWorkloadName(pmr.WorkloadName)
-	if err != nil {
+	if err := ValidateWorkloadName(pmr.secret.WorkloadName); err != nil {
 		return err
 	}
-	err = ValidatePodName(pmr.PodName)
-	if err != nil {
+
+	if err := ValidatePodName(pmr.secret.PodName); err != nil {
 		return err
 	}
+
+	for _, h := range pmr.Hostnames {
+		if err := ValidateHostname(h); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -232,14 +265,20 @@ func (pm *PodMessage) AddServer(server string) {
 }
 
 func CreatePodMessage(caKeyRing *KeyRing, pmr *PodMessageReq) (*PodMessage, error) {
+	logger := log.Log
+
 	expirationInterval := time.Hour * 24 * 30 // 30 days
 	//sans := []string{"any", strings.ToLower(pmr.PodName), "myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"}
-	sans := []string{"any", strings.ToLower(pmr.PodName)}
+	sans := []string{"any", strings.ToLower(pmr.secret.PodName)}
+	for _, hostname := range pmr.Hostnames {
+		sans = append(sans, hostname)
+	}
+	logger.Infof(" Creating certificate for sans %v", sans)
 
-	podMessage := NewPodMessage(pmr.PodName)
+	podMessage := NewPodMessage(pmr.secret.PodName)
 	privateKeyBlock, certBlock, err := createPodCert(caKeyRing.prkPem, caKeyRing.certPem, expirationInterval, sans...)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot create pod cert for pod %s: %w\n", pmr.PodName, err)
+		return nil, fmt.Errorf("Cannot create pod cert for pod %s: %w\n", pmr.secret.PodName, err)
 
 	}
 	podMessage.SetCa(caKeyRing.certs[caKeyRing.latestCert])
@@ -252,30 +291,30 @@ func CreatePodMessage(caKeyRing *KeyRing, pmr *PodMessageReq) (*PodMessage, erro
 	podMessage.SetPrivateKey(pem.EncodeToMemory(privateKeyBlock))
 	err = podMessage.SetWorkloadKey(caKeyRing.sKeys[caKeyRing.latestSKey], caKeyRing.latestSKey)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot set workload key for pod %s: %w\n", pmr.PodName, err)
+		return nil, fmt.Errorf("Cannot set workload key for pod %s: %w\n", pmr.secret.PodName, err)
 	}
 	for index, cert := range caKeyRing.sKeys {
 		if index != caKeyRing.latestSKey {
 			if err != nil {
-				return nil, fmt.Errorf("Cannot decode string workload key for pod %s: %w\n", pmr.PodName, err)
+				return nil, fmt.Errorf("Cannot decode string workload key for pod %s: %w\n", pmr.secret.PodName, err)
 			}
 			err = podMessage.SetWorkloadKey(cert, index)
 			if err != nil {
-				return nil, fmt.Errorf("Cannot set workload key for pod %s: %w\n", pmr.PodName, err)
+				return nil, fmt.Errorf("Cannot set workload key for pod %s: %w\n", pmr.secret.PodName, err)
 			}
 		}
 	}
-	podMessage.AddClient(pmr.PodName)
-	podMessage.AddServer(pmr.PodName)
+	podMessage.AddClient(pmr.secret.PodName)
+	podMessage.AddServer(pmr.secret.PodName)
 	for client, servers := range caKeyRing.peers {
 		serverSlice := strings.Split(servers, ",")
-		if client == pmr.PodName {
+		if client == pmr.secret.PodName {
 			for _, server := range serverSlice {
 				podMessage.AddServer(server)
 			}
 		} else {
 			for _, server := range serverSlice {
-				if server == pmr.PodName {
+				if server == pmr.secret.PodName {
 					podMessage.AddServer(client)
 				}
 			}

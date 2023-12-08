@@ -26,7 +26,7 @@ import (
 
 func CreateRot(rotKeyRing *KeyRing) (*tls.Certificate, *x509.CertPool, error) {
 	expirationInterval := time.Hour * 24 * 30 // 30 days
-	sans := []string{"any", "rot", "rot.seal-control"}
+	sans := []string{"any", "rot", "rot.seal-control", "127.0.0.1"}
 
 	privateKeyBlock, certBlock, err := createPodCert(rotKeyRing.prkPem, rotKeyRing.certPem, expirationInterval, sans...)
 	if err != nil {

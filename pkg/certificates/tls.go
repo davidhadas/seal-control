@@ -17,10 +17,8 @@ limitations under the License.
 package certificates
 
 import (
-	"bytes"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -84,7 +82,7 @@ func (mt *MutualTls) Verify() func(cs tls.ConnectionState) error {
 
 func (mt *MutualTls) GetTlsConfig() *tls.Config {
 	return &tls.Config{
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: false,
 		ClientAuth:         tls.RequireAndVerifyClientCert,
 		// SNI under Route passthrough:
 		// Setting ServerName results in an alternative certificate being returned
@@ -98,7 +96,6 @@ func (mt *MutualTls) GetTlsConfig() *tls.Config {
 }
 
 func client(caPool *x509.CertPool, cert *tls.Certificate, mt *MutualTls) {
-
 	client := mt.Client()
 	// Create an HTTP request with custom headers
 	req, err := http.NewRequest("GET", "https://127.0.0.1:8443", nil)
@@ -146,111 +143,4 @@ func (mt *MutualTls) Server(mux *http.ServeMux, address string) *http.Server {
 		ReadTimeout:       10 * time.Second, // RUDY attack
 		TLSConfig:         mt.GetTlsConfig(),
 	}
-}
-
-func Rot_client(eegg string) (*PodMessage, error) {
-	logger := log.Log
-
-	e := InitEgg{}
-	err := e.Decode(eegg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decodeegg: %w\n", err)
-	}
-	ccert, err := e.GetCert()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cert from egg: %w\n", err)
-	}
-	ccaPool, err := e.GetCaPool()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cert from egg: %w\n", err)
-	}
-	mtc := &MutualTls{
-		Cert:   ccert,
-		CaPool: ccaPool,
-	}
-	mtc.AddPeer("rot")
-
-	client := mtc.Client()
-
-	// Create an HTTP request with custom headers
-	req, err := http.NewRequest("POST", e.RotUrl, bytes.NewBuffer(e.EncPmr))
-	if err != nil {
-		return nil, fmt.Errorf("error creating HTTP request: %w", err)
-	}
-	req.Header.Add("Content-Type", "application/json")
-
-	// Send the HTTP request
-	logger.Infof("found egg, approching Rot")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error sending HTTP request: %w", err)
-	}
-
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading HTTP response body: %w", err)
-	}
-	var podMessage PodMessage
-	err = json.Unmarshal(body, &podMessage)
-	if err != nil {
-		fmt.Printf("body: %s", string(body))
-		return nil, fmt.Errorf("failed to unmarshal body: %w", err)
-	}
-	return &podMessage, nil
-}
-
-func Rot_service(w http.ResponseWriter, r *http.Request) {
-	logger := log.Log
-
-	logger.Infof("got /rot request\n")
-	var pmr PodMessageReq
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		logger.Infof("Failed to read request body: %v\n", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	key := KubeMgr.RotCaKeyRing.sKeys[KubeMgr.RotCaKeyRing.latestSKey]
-	err = pmr.Decrypt(key, body)
-	if err != nil {
-		for index, key := range KubeMgr.RotCaKeyRing.sKeys {
-			if index == KubeMgr.RotCaKeyRing.latestSKey {
-				continue
-			}
-			err = pmr.Decrypt(key, body)
-			if err == nil {
-				break
-			}
-		}
-	}
-	if err != nil {
-		logger.Infof("Failed to decode json request: %v\n", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	err = pmr.Validate()
-	if err != nil {
-		logger.Infof("Failed to validate pod message request: %v\n", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	caKeyRing, err := GetCA(pmr.WorkloadName)
-	if err != nil {
-		logger.Infof("Failed to get a CA: %v\n", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	podMessage, err := CreatePodMessage(caKeyRing, &pmr)
-	if err != nil {
-		logger.Infof("Failed to CreatePodMessage: %v\n", err)
-		return
-	}
-
-	logger.Infof("Done processing secret\n")
-	bytes, err := json.Marshal(podMessage)
-	w.Write(bytes)
 }

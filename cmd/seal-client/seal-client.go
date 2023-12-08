@@ -33,10 +33,17 @@ import (
 func main() {
 	log.InitLog()
 	logger := log.Log
+	var url string
 
-	url := os.Getenv("URL")
+	if len(os.Args) > 1 {
+		url = os.Args[1]
+	}
+	if url == "" {
+		url = os.Getenv("URL")
+	}
 	if url == "" {
 		url = "https://127.0.0.1:9443"
+		//url = "https://myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"
 	}
 
 	eggpath := os.Getenv("KO_DATA_PATH")
@@ -69,16 +76,14 @@ func main() {
 	for _, server := range podMessage.Servers {
 		mtc.AddPeer(server)
 	}
-	//go client(mtc, "https://127.0.0.1:9443")
-	//go client(mtc, "https://myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud/")
-	go client(mtc, url)
+	client(mtc, url)
 }
 
 func client(mt *certificates.MutualTls, address string) {
 	logger := log.Log
 
-	logger.Infof("Sleep waiting for server to come up")
-	time.Sleep(5 * time.Second)
+	logger.Infof("Sleep waiting for server to come up - %s", address)
+	//time.Sleep(5 * time.Second)
 	logger.Infof("Initiating client to %s", address)
 
 	client := mt.Client()
@@ -108,4 +113,5 @@ func client(mt *certificates.MutualTls, address string) {
 	// Print the response body
 	fmt.Println(string(body))
 	logger.Infof("The End!")
+	time.Sleep(time.Hour * 24 * 7)
 }

@@ -42,15 +42,12 @@ func (egg *InitEgg) SetPrivateKey(privateKey []byte) {
 }
 
 func (egg *InitEgg) SetEncPmr(symenticKey []byte, workloadName string, podName string) error {
-	pmr := &PodMessageReq{
-		WorkloadName: workloadName,
-		PodName:      podName,
-	}
-	encPmr, err := pmr.Encrypt(symenticKey)
+	pmr := NewPodMessageReq(workloadName, podName)
+	err := pmr.Encrypt(symenticKey)
 	if err != nil {
 		return fmt.Errorf("Failed to encrypt pmr: %w", err)
 	}
-	egg.EncPmr = encPmr
+	egg.EncPmr = pmr.Secret
 	return nil
 }
 

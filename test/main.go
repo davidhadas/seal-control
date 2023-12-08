@@ -31,12 +31,20 @@ func main() {
 		return
 	}
 
-	if testPod() &&
-		testPmr() &&
-		testRot() {
-		logger.Infof("SUCESS!!!")
+	if !testPod() {
+		logger.Infof("FAIL!!!")
 		return
 	}
-	logger.Infof("FAIL!!!")
+	if !testPmr() {
+		logger.Infof("FAIL!!!")
+		return
+	}
+
+	if !testRot() {
+		logger.Infof("FAIL!!!")
+		return
+	}
+
+	logger.Infof("SUCESS!!!")
 
 }
