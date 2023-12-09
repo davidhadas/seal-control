@@ -24,22 +24,32 @@ roleRef:
   kind: Role 
   name: secret-reader
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: rot
   namespace: seal-control
   labels:
     app.kubernetes.io/name: RoT
-spec:
-  containers:
-  - name: rot
-    image: ko://github.com/davidhadas/seal-control/cmd/rot
-    imagePullPolicy: IfNotPresent
-    ports:
-    - containerPort: 8443
-  imagePullSecrets:
-  - name: all-icr-io
+spec: 
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: RoT
+  template:
+    metadata:
+      name: rot
+      labels:
+        app.kubernetes.io/name: RoT
+    spec:
+      containers:
+      - name: rot
+        image: ko://github.com/davidhadas/seal-control/cmd/rot
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8443
+      imagePullSecrets:
+      - name: all-icr-io
 ---
 apiVersion: v1
 kind: Service

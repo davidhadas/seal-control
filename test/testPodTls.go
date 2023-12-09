@@ -36,28 +36,29 @@ func testPod() bool {
 		return false
 	}
 	certificates.KubeMgr.DeleteCa("my-workload-name")
-	caKeyRing, err := certificates.CreateNewCA("my-workload-name", "https://127.0.0.1:7443")
+
+	_, err = certificates.CreateNewCA("my-workload-name", "https://127.0.0.1:7443")
 	if err != nil {
 		logger.Infof("Failed to create a CA: %v\n", err)
 		return false
 	}
 
-	caKeyRing, err = certificates.GetCA("my-workload-name")
+	_, err = certificates.GetCA("my-workload-name")
 	if err != nil {
 		logger.Infof("Failed to get a CA: %v\n", err)
 		return false
 	}
 
-	err = certificates.KubeMgr.DeleteCa("my-workload-name")
-	if err != nil {
-		logger.Infof("Failed to create a CA: %v\n", err)
-		return false
-	}
-	pmr := certificates.NewPodMessageReq("my-workload", "my-pod")
+	pmr := certificates.NewPodMessageReq("my-workload-name", "my-pod")
 
-	podMessage, err := certificates.CreatePodMessage(caKeyRing, pmr)
+	podMessage, err := certificates.CreatePodMessage(pmr)
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %v\n", err)
+		return false
+	}
+	err = certificates.KubeMgr.DeleteCa("my-workload-name")
+	if err != nil {
+		logger.Infof("Failed to delete a CA: %v\n", err)
 		return false
 	}
 	logger.Infof("Done processing secret\n")

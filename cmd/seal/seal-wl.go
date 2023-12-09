@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"os"
 	"strings"
@@ -86,28 +87,28 @@ func wl() {
 		return
 	case numArgs == 4:
 		workload := os.Args[2]
+		cmd := os.Args[3]
 		err = certificates.ValidateWorkloadName(workload)
 		if err != nil {
 			fmt.Printf("Ilegal workload name: %v\n", err)
 			return
 		}
-		if os.Args[3] == "init" {
+		if cmd == "init" {
 			rotUrl := certificates.KubeMgr.RotCaKeyRing.RotUrl()
 			wl_init(workload, rotUrl)
 			return
 		}
-		_, err := certificates.GetCA(workload)
-		if err != nil {
-			fmt.Printf("Failed to load workload CA: %v\n", err)
-			fmt.Printf("Initialize workload CA using\n\t`wl %s init`\n", workload)
-			return
-		}
-		switch os.Args[3] {
-		case "del", "delete":
+		if cmd == "del" || cmd == "delete" {
 			wl_del(workload)
 			return
+		}
+
+		switch cmd {
 		case "egg":
 			wl_egg(workload, "any")
+			return
+		case "cert":
+			wl_cert(workload, "any")
 			return
 		}
 	case numArgs == 5:
@@ -123,15 +124,21 @@ func wl() {
 			fmt.Printf("Initialize workload CA using\n\t`wl %s init`\n", workload)
 			return
 		}
+
+		servicename := os.Args[4]
+		err = certificates.ValidateSevriceName(servicename)
+		if err != nil {
+			fmt.Printf("Ilegal service name: %v\n", err)
+			return
+		}
+
 		switch os.Args[3] {
 		case "egg":
-			servicename := os.Args[4]
-			err = certificates.ValidatePodName(servicename)
-			if err != nil {
-				fmt.Printf("Ilegal pod name: %v\n", err)
-				return
-			}
 			wl_egg(workload, servicename)
+			return
+		case "cert":
+
+			wl_cert(workload, servicename)
 			return
 		}
 	case numArgs > 5:
@@ -141,7 +148,7 @@ func wl() {
 			fmt.Printf("Ilegal workload name: %v\n", err)
 			return
 		}
-		_, err := certificates.GetCA(workload)
+		workloadCaKeyRing, err := certificates.GetCA(workload)
 		if err != nil {
 			fmt.Printf("Failed to load workload CA: %v\n", err)
 			fmt.Printf("Initialize workload CA using\n\t`wl %s init`\n", workload)
@@ -150,9 +157,9 @@ func wl() {
 		switch os.Args[3] {
 		case "client":
 			client := os.Args[4]
-			err = certificates.ValidatePodName(client)
+			err = certificates.ValidateSevriceName(client)
 			if err != nil {
-				fmt.Printf("Ilegal client pod name: %v\n", err)
+				fmt.Printf("Ilegal client service name: %v\n", err)
 				return
 			}
 			if os.Args[5] != "servers" {
@@ -163,15 +170,15 @@ func wl() {
 
 			for i := 6; i < numArgs; i++ {
 				server := os.Args[i]
-				err = certificates.ValidatePodName(server)
+				err = certificates.ValidateSevriceName(server)
 				if err != nil {
-					fmt.Printf("Ilegal server pod name: %v\n", err)
+					fmt.Printf("Ilegal server service name: %v\n", err)
 					return
 				}
 				servers = append(servers, server)
 			}
 
-			wl_connect(workload, client, servers)
+			wl_connect(workloadCaKeyRing, workload, client, servers)
 			return
 		}
 	}
@@ -186,20 +193,16 @@ func wl_help() {
 	fmt.Printf("  seal wl <Workload-Name> del\n")
 	fmt.Printf("  seal wl <Workload-Name> init\n")
 	fmt.Printf("  seal wl <Workload-Name> egg\n")
-	fmt.Printf("  seal wl <Workload-Name> egg <Pod-Name>\n")
-	fmt.Printf("  seal wl <Workload-Name> client <Pod-Name> servers *[,<Pod-Name>]...\n")
+	fmt.Printf("  seal wl <Workload-Name> cert\n")
+	fmt.Printf("  seal wl <Workload-Name> egg <Name>\n")
+	fmt.Printf("  seal wl <Workload-Name> cert <Name>\n")
+	fmt.Printf("  seal wl <Workload-Name> client <Name> servers *[,<Name>]...\n")
 }
 
-func wl_connect(workload string, client string, servers []string) {
-	caKeyRing, err := certificates.GetCA(workload)
-	if err != nil {
-		fmt.Printf("Failed to load workload CA: %v\n", err)
-		fmt.Printf("Initialize workload CA using\n\t`wl %s init`\n", workload)
-		return
-	}
-	caKeyRing.AddPeer(client, strings.Join(servers, ","))
+func wl_connect(workloadCaKeyRing *certificates.KeyRing, workload string, client string, servers []string) {
+	workloadCaKeyRing.AddPeer(client, strings.Join(servers, ","))
 
-	err = certificates.UpdateCA(workload, caKeyRing)
+	err := certificates.UpdateCA(workload, workloadCaKeyRing)
 	if err != nil {
 		fmt.Printf("Failed to update secret: %w\n", err)
 	}
@@ -241,9 +244,72 @@ func wl_del(workload string) {
 		certificates.KubeMgr.DeleteCa(workload)
 	}
 }
+func wl_cert(workload string, servicename string) {
+	pmr := certificates.NewPodMessageReq(workload, servicename)
+	podMessage, err := certificates.CreatePodMessage(pmr)
+	if err != nil {
+		fmt.Printf("Failed to CreatePodMessage: %v\n", err)
+		return
+	}
+
+	cas, err := podMessage.GetCaPem()
+	if err != nil {
+		fmt.Printf("Failed to get CA Pem: %v\n", err)
+		return
+	}
+	cert, pkey, err := podMessage.GetCertPem()
+	if err != nil {
+		fmt.Printf("Failed to get Cert and Prk Pems: %v\n", err)
+		return
+	}
+
+	err = toFile("ca.pem", cas)
+	if err != nil {
+		fmt.Printf("Failed creating CA PEM: %v\n", err)
+		return
+	}
+
+	certificate, err := tls.X509KeyPair(cert, pkey)
+	if err != nil {
+		fmt.Printf("tls.X509KeyPair failed: %v", err)
+		return
+	}
+	err = toFile("x509.cert", certificate.Certificate[0])
+	if err != nil {
+		fmt.Printf("Failed creating PRK PEM: %v\n", err)
+		return
+	}
+
+	err = toFile("cert.pem", cert)
+	if err != nil {
+		fmt.Printf("Failed creating CERT PEM: %v\n", err)
+		return
+	}
+	err = toFile("prk.pem", pkey)
+	if err != nil {
+		fmt.Printf("Failed creating PRK PEM: %v\n", err)
+		return
+	}
+	fmt.Printf("ca.pem, cert.pem, prk.pem files created\n")
+
+}
+
+func toFile(filename string, data []byte) error {
+	f, err := os.OpenFile(filename, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("Failed to open file %s: %v", filename, err)
+	}
+	defer f.Close()
+
+	_, err = f.Write([]byte(data))
+	if err != nil {
+		return fmt.Errorf("Failed to write to file %s: %v", filename, err)
+	}
+	return nil
+}
 
 func wl_egg(workload string, servicename string) {
-	egg, err := certificates.CreateInit(certificates.KubeMgr.RotCaKeyRing, workload, servicename)
+	egg, err := certificates.CreateInit(workload, servicename)
 	if err != nil {
 		fmt.Printf("Failed to create egg: %v\n", err)
 		return

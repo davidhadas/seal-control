@@ -44,7 +44,7 @@ func main() {
 		return
 	}
 
-	cert, caPool, err := certificates.CreateRot(certificates.KubeMgr.RotCaKeyRing)
+	cert, caPool, err := certificates.CreateRotService()
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %v\n", err)
 		return

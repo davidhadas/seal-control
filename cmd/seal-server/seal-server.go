@@ -69,7 +69,7 @@ func process(w http.ResponseWriter, _ *http.Request) {
 	logger := log.Log
 	logger.Infof("Server processing request")
 
-	fmt.Fprintf(w, "Hello")
+	fmt.Fprintf(w, "\n\tHello little client, \n\thappy to serve you today\n\n")
 }
 
 func server(mt *certificates.MutualTls) {

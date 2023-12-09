@@ -21,21 +21,19 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"time"
 )
 
-func CreateRot(rotKeyRing *KeyRing) (*tls.Certificate, *x509.CertPool, error) {
-	expirationInterval := time.Hour * 24 * 30 // 30 days
+func CreateRotService() (*tls.Certificate, *x509.CertPool, error) {
 	sans := []string{"any", "rot", "rot.seal-control", "127.0.0.1"}
 
-	privateKeyBlock, certBlock, err := createPodCert(rotKeyRing.prkPem, rotKeyRing.certPem, expirationInterval, sans...)
+	privateKeyBlock, certBlock, err := createPodCert(KubeMgr.RotCaKeyRing.prkPem, KubeMgr.RotCaKeyRing.certPem, "", sans...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Cannot create pod cert for rot: %w\n", err)
 
 	}
-	caArray := [][]byte{rotKeyRing.certs[rotKeyRing.latestCert]}
-	for index, cert := range rotKeyRing.certs {
-		if index != rotKeyRing.latestCert {
+	caArray := [][]byte{KubeMgr.RotCaKeyRing.certs[KubeMgr.RotCaKeyRing.latestCert]}
+	for index, cert := range KubeMgr.RotCaKeyRing.certs {
+		if index != KubeMgr.RotCaKeyRing.latestCert {
 			caArray = append(caArray, cert)
 		}
 	}
@@ -54,29 +52,27 @@ func CreateRot(rotKeyRing *KeyRing) (*tls.Certificate, *x509.CertPool, error) {
 	return &certificate, caCertPool, nil
 }
 
-func CreateInit(rotKeyRing *KeyRing, workloadName string, podName string) (*InitEgg, error) {
+func CreateInit(workloadName string, serviceName string) (*InitEgg, error) {
 	initEgg := &InitEgg{
-		RotUrl: rotKeyRing.rotUrl,
+		RotUrl: KubeMgr.RotCaKeyRing.rotUrl,
 	}
-
-	expirationInterval := time.Hour * 24 * 30 // 30 days
 	sans := []string{"any", "init"}
 
-	privateKeyBlock, certBlock, err := createPodCert(rotKeyRing.prkPem, rotKeyRing.certPem, expirationInterval, sans...)
+	privateKeyBlock, certBlock, err := createPodCert(KubeMgr.RotCaKeyRing.prkPem, KubeMgr.RotCaKeyRing.certPem, workloadName, sans...)
 	if err != nil {
 		return nil, fmt.Errorf("Cannot create pod cert for init: %w\n", err)
 
 	}
 
-	initEgg.AddCa(rotKeyRing.certs[rotKeyRing.latestCert])
-	for index, cert := range rotKeyRing.certs {
-		if index != rotKeyRing.latestCert {
+	initEgg.AddCa(KubeMgr.RotCaKeyRing.certs[KubeMgr.RotCaKeyRing.latestCert])
+	for index, cert := range KubeMgr.RotCaKeyRing.certs {
+		if index != KubeMgr.RotCaKeyRing.latestCert {
 			initEgg.AddCa(cert)
 		}
 	}
 	initEgg.SetCert(pem.EncodeToMemory(certBlock))
 	initEgg.SetPrivateKey(pem.EncodeToMemory(privateKeyBlock))
-	initEgg.SetEncPmr(rotKeyRing.sKeys[rotKeyRing.latestSKey], workloadName, podName)
+	initEgg.SetEncPmr(KubeMgr.RotCaKeyRing.sKeys[KubeMgr.RotCaKeyRing.latestSKey], workloadName, serviceName)
 
 	return initEgg, nil
 }

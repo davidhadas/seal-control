@@ -38,7 +38,7 @@ func testRot() bool {
 		logger.Infof("Failed to load ROT CA: %v", err)
 		return false
 	}
-	scert, scaPool, err := certificates.CreateRot(certificates.KubeMgr.RotCaKeyRing)
+	scert, scaPool, err := certificates.CreateRotService()
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %v\n", err)
 		return false
@@ -56,7 +56,7 @@ func testRot() bool {
 		return false
 	}
 	// client
-	egg, err := certificates.CreateInit(certificates.KubeMgr.RotCaKeyRing, "my-test-workload", "init")
+	egg, err := certificates.CreateInit("my-test-workload", "init")
 	if err != nil {
 		logger.Infof("Failed to CreateInit: %v\n", err)
 		return false

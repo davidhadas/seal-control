@@ -32,7 +32,7 @@ func main() {
 	log.InitLog()
 	logger := log.Log
 
-	logger.Infof("\t*** SEAL INIT ***")
+	logger.Infof("Seal init starting")
 	eggpath := os.Getenv("KO_DATA_PATH")
 	podmessagepath := "/seal/podMessage"
 	if eggpath == "" {
@@ -48,11 +48,9 @@ func main() {
 	}
 
 	hostnames := os.Getenv("HOSTNAMES")
-	logger.Infof("hostnames %s", hostnames)
 	hsplits := strings.Split(hostnames, ",")
-	logger.Infof("hsplits %v", hsplits)
 	for _, h := range hsplits {
-		logger.Infof("hostname %s", h)
+		logger.Infof("adding hostname %s", h)
 		if err := certificates.ValidateHostname(h); err != nil {
 			logger.Infof("%v", err)
 			return
@@ -75,4 +73,5 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Infof("Created %s", podmessagepath)
+	logger.Infof("Seal init terminating")
 }

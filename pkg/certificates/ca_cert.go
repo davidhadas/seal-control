@@ -33,15 +33,16 @@ import (
 )
 
 const (
-	Organization         = "research.ibm.com"
-	CertName             = "tls.crt"
-	PrivateKeyName       = "tls.key"
-	SymetricKeyName      = "sym.key"
-	RotUrlName           = "rot-url"
-	rotationThreshold    = 24 * time.Hour
-	caExpirationInterval = time.Hour * 24 * 365 * 10 // 10 years
-	RotCaName            = "rot-ca"
-	PeerName             = "peer"
+	Organization           = "research.ibm.com"
+	CertName               = "tls.crt"
+	PrivateKeyName         = "tls.key"
+	SymetricKeyName        = "sym.key"
+	RotUrlName             = "rot-url"
+	rotationThreshold      = 24 * time.Hour
+	caExpirationInterval   = time.Hour * 24 * 365 * 10 // 10 years
+	certExpirationInterval = time.Hour * 24 * 30       // 30 days
+	RotCaName              = "rot-ca"
+	PeerName               = "peer"
 )
 
 var randReader = rand.Reader
@@ -67,16 +68,25 @@ func createCertTemplate(expirationInterval time.Duration, sans []string) (*x509.
 }
 
 // Create cert template suitable for CA and hence signing
-func createCACertTemplate(expirationInterval time.Duration) (*x509.Certificate, error) {
-	rootCert, err := createCertTemplate(expirationInterval, []string{})
+func createCACertTemplate(workloadName string) (*x509.Certificate, error) {
+	rootCert, err := createCertTemplate(caExpirationInterval, []string{})
 	if err != nil {
 		return nil, err
 	}
+
+	var org string
+	if workloadName == "" {
+		org = Organization
+	} else {
+		org = workloadName + "." + Organization
+	}
+	fmt.Printf("createCACertTemplate org %s\n", org)
 	// Make it into a CA cert and change it so we can use it to sign certs
 	rootCert.IsCA = true
 	rootCert.KeyUsage = x509.KeyUsageCertSign
 	rootCert.Subject = pkix.Name{
-		Organization: []string{Organization},
+		Organization: []string{org},
+		CommonName:   "WorkloadCA",
 	}
 	return rootCert, nil
 }
@@ -159,13 +169,13 @@ func commitUpdatedCaSecret(secret *corev1.Secret, keys *KeyRing) error {
 }
 
 // createCACerts generates the root CA cert
-func createCACerts(keyRing *KeyRing, expirationInterval time.Duration) error {
+func createCACerts(workloadName string, keyRing *KeyRing) error {
 	caKeyPair, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return fmt.Errorf("error generating random key: %w", err)
 	}
 
-	rootCertTmpl, err := createCACertTemplate(expirationInterval)
+	rootCertTmpl, err := createCACertTemplate(workloadName)
 	if err != nil {
 		return fmt.Errorf("error generating CA cert: %w", err)
 	}
@@ -244,7 +254,7 @@ func CreateNewCA(workloadName string, rotUrl string) (keyRing *KeyRing, errout e
 
 	// We need to generate a new CA cert, then shortcircuit the reconciler
 	keyRing = NewKeyRing()
-	err = createCACerts(keyRing, caExpirationInterval)
+	err = createCACerts(workloadName, keyRing)
 	if err != nil {
 		errout = fmt.Errorf("Cannot generate the keypair for the secret: %w\n", err)
 		return
@@ -275,7 +285,7 @@ func CreateNewCA(workloadName string, rotUrl string) (keyRing *KeyRing, errout e
 func RenewCA(kubeMgr *KubeMgrStruct, workloadName string, keyRing *KeyRing) error {
 	var err error
 
-	err = createCACerts(keyRing, caExpirationInterval)
+	err = createCACerts(workloadName, keyRing)
 	if err != nil {
 		return fmt.Errorf("Cannot generate the keypair for the secret: %w\n", err)
 	}

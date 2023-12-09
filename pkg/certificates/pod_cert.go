@@ -23,33 +23,39 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"time"
 )
 
 // Create cert template that we can use on the client/server for TLS
-func createTransportCertTemplate(expirationInterval time.Duration, sans []string) (*x509.Certificate, error) {
-	cert, err := createCertTemplate(expirationInterval, sans)
+func createTransportCertTemplate(workloadName string, sans []string) (*x509.Certificate, error) {
+
+	cert, err := createCertTemplate(certExpirationInterval, sans)
 	if err != nil {
 		return nil, err
+	}
+	var cn string
+	if workloadName == "" {
+		cn = Organization
+	} else {
+		cn = workloadName + "." + Organization
 	}
 	cert.KeyUsage = x509.KeyUsageDigitalSignature
 	cert.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}
 	cert.Subject = pkix.Name{
 		Organization: []string{Organization},
-		CommonName:   "seal-control",
+		CommonName:   cn,
 	}
 	return cert, err
 }
 
 // createPodCert generates the certificate for use by client and server
-func createPodCert(caKey *rsa.PrivateKey, caCertificate *x509.Certificate, expirationInterval time.Duration, sans ...string) (*pem.Block, *pem.Block, error) {
+func createPodCert(caKey *rsa.PrivateKey, caCertificate *x509.Certificate, workloadName string, sans ...string) (*pem.Block, *pem.Block, error) {
 	// Then create the private key for the serving cert
 	keyPair, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error generating random key: %w", err)
 	}
 
-	certTemplate, err := createTransportCertTemplate(expirationInterval, sans)
+	certTemplate, err := createTransportCertTemplate(workloadName, sans)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create the certificate template: %w", err)
 	}

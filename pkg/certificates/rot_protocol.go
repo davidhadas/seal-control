@@ -49,11 +49,9 @@ func Rot_client(eegg string, hostnames []string) (*PodMessage, error) {
 	mtc.AddPeer("rot")
 
 	client := mtc.Client()
-
 	pmr := NewPodMessageReq("", "")
 	pmr.Secret = e.EncPmr
 	pmr.Hostnames = hostnames
-	logger.Infof("pod message request %v", pmr)
 	jpmr, err := json.Marshal(pmr)
 	if err != nil {
 		return nil, fmt.Errorf("error marshal pod message request: %w", err)
@@ -130,13 +128,7 @@ func Rot_service(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	caKeyRing, err := GetCA(pmr.secret.WorkloadName)
-	if err != nil {
-		logger.Infof("Failed to get a CA: %v\n", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	podMessage, err := CreatePodMessage(caKeyRing, &pmr)
+	podMessage, err := CreatePodMessage(&pmr)
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %v\n", err)
 		return

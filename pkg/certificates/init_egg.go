@@ -41,8 +41,8 @@ func (egg *InitEgg) SetPrivateKey(privateKey []byte) {
 	egg.PrivateKey = base64.StdEncoding.EncodeToString(privateKey)
 }
 
-func (egg *InitEgg) SetEncPmr(symenticKey []byte, workloadName string, podName string) error {
-	pmr := NewPodMessageReq(workloadName, podName)
+func (egg *InitEgg) SetEncPmr(symenticKey []byte, workloadName string, serviceName string) error {
+	pmr := NewPodMessageReq(workloadName, serviceName)
 	err := pmr.Encrypt(symenticKey)
 	if err != nil {
 		return fmt.Errorf("Failed to encrypt pmr: %w", err)

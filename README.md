@@ -17,12 +17,8 @@ Pods certificates are used both for client and for server side udner mTLS. Clien
 ## mTLS between pods on different clusters 
 For m2m communication patterns across cloud bounderies, set the Kubernetes services with Openshift passthrough Routes to allow end-to-end mTLS communication. This reuqires (1) SNI to be set to the hostanme (which is the default behavior for SNI), (2) the client to use a verification method that does not rely on the hostname to be part of the server presented certificate SANs. An example golang client is included here. 
 
-External clients runing on a trusted cluster may also use mTLS to communicate with the pods on remote untrusted clusters by obtaining certificates signed by the workload CA from the ROT. 
+External clients runing on a trusted cluster may also use mTLS to communicate with the pods on remote untrusted clusters by obtaining certificates signed by the workload CA from the ROT. The same is true for a client from one cluster (or cloud) communicting with server on another cluster (or cloud). To facilitate standard mTLS verification, support is added to adding the server hostname to the server certificate using teh `HOSTNAMES` env variable `seal-init`. 
 
-
-#TBD
-1. Can we avoid duplicating rotURL from RotCA to all WorkloadCAs?
-1. 
 
 ## Https or HTTP between a standard external client and the workload pods
 For use cases where standard external clients (such as browsers) need to communicate with the workload, all standard communication patterns are supported. It is up to the workload owner to consider the security implications of any data sent to, or received from, such cleints.   
@@ -30,3 +26,7 @@ For use cases where standard external clients (such as browsers) need to communi
 In case https is required, standard methodologies should be applied for signing the server certificate with public CAs. Where client side authentication is also required, standard mechanisms can be applied. 
 
 
+
+# Future
+1. Can we avoid duplicating `rotURL` from RotCA to all WorkloadCAs?
+1. ...
