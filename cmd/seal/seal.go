@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2022 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package main
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -26,27 +25,27 @@ import (
 	"github.com/davidhadas/seal-control/pkg/log"
 )
 
-var hFlag *bool
-var helpFlag *bool
+var helpFlag bool
 
 func main() {
-	log.InitLog()
-	flag.Usage = help
-	hFlag = flag.Bool("h", false, "h")
-	helpFlag = flag.Bool("help", false, "help")
-
-	flag.Parse()
+	log.InitLog("Debug")
+	var args []string
 
 	if len(os.Args) < 2 {
 		help()
 		os.Exit(2)
 	}
+	args = os.Args[1:]
 
-	switch os.Args[1] {
+	switch args[0] {
 	case "sys", "system":
-		sys()
+		sys(args[1:])
 	case "wl", "workload":
-		wl()
+		wl(args[1:])
+	case "-h":
+		help()
+	default:
+		help()
 	}
 	return
 }
@@ -54,14 +53,15 @@ func main() {
 func help() {
 	fmt.Printf("Seal controls resources to secure remote workloads\n\n")
 	fmt.Printf("Commands:\n\n")
-	fmt.Println("  system (sys)  Control the Seal system")
-	fmt.Println("  workload (wl) Control workloads")
+	fmt.Println("  Seal sys (system)  Control the Seal system")
+	fmt.Println("  seal wl (workload) Control workloads")
 	options()
 }
 
 func options() {
 	fmt.Printf("\nOptions:\n\n")
 	fmt.Println("  -help (-h)  Show this help")
+	fmt.Println("  -f  		   Configuration file name")
 }
 
 func askForConfirmation(s string) bool {

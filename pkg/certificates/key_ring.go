@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Knative Authors
+Copyright 2021 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -278,4 +278,8 @@ func (kr *KeyRing) RotUrl() string {
 
 func (kr *KeyRing) Peers() map[string]string {
 	return kr.peers
+}
+
+func (kr *KeyRing) GetSymetricKey() []byte {
+	return kr.sKeys[kr.latestSKey]
 }

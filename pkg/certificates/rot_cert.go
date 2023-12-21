@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Knative Authors
+Copyright 2023 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ func CreateRotService() (*tls.Certificate, *x509.CertPool, error) {
 
 	privateKeyBlock, certBlock, err := createPodCert(KubeMgr.RotCaKeyRing.prkPem, KubeMgr.RotCaKeyRing.certPem, "", sans...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Cannot create pod cert for rot: %w\n", err)
+		return nil, nil, fmt.Errorf("Cannot create pod cert for rot: %w", err)
 
 	}
 	caArray := [][]byte{KubeMgr.RotCaKeyRing.certs[KubeMgr.RotCaKeyRing.latestCert]}
@@ -53,14 +53,14 @@ func CreateRotService() (*tls.Certificate, *x509.CertPool, error) {
 }
 
 func CreateInit(workloadName string, serviceName string) (*InitEgg, error) {
-	initEgg := &InitEgg{
-		RotUrl: KubeMgr.RotCaKeyRing.rotUrl,
-	}
+	initEgg := NewInitEgg()
+	initEgg.SetTorUrl(KubeMgr.RotCaKeyRing.rotUrl)
+
 	sans := []string{"any", "init"}
 
 	privateKeyBlock, certBlock, err := createPodCert(KubeMgr.RotCaKeyRing.prkPem, KubeMgr.RotCaKeyRing.certPem, workloadName, sans...)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot create pod cert for init: %w\n", err)
+		return nil, fmt.Errorf("Cannot create pod cert for init: %w", err)
 
 	}
 

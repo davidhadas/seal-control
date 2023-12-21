@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2023 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,10 +23,8 @@ import (
 	"github.com/davidhadas/seal-control/pkg/log"
 )
 
-// WIP
-
 func main() {
-	log.InitLog()
+	log.InitLog("Debug")
 	logger := log.Log
 	var err error
 
@@ -35,7 +33,7 @@ func main() {
 
 	err = certificates.InitKubeMgr()
 	if err != nil {
-		logger.Infof("Failed to create a kubeMgr: %v\n", err)
+		logger.Infof("Failed to create a kubeMgr: %v", err)
 		return
 	}
 	err = certificates.LoadRotCa()
@@ -46,7 +44,7 @@ func main() {
 
 	cert, caPool, err := certificates.CreateRotService()
 	if err != nil {
-		logger.Infof("Failed to CreatePodMessage: %v\n", err)
+		logger.Infof("Failed to CreatePodMessage: %v", err)
 		return
 	}
 
@@ -56,7 +54,7 @@ func main() {
 		CaPool:   caPool,
 	}
 	mts.AddPeer("init")
-	logger.Infof("Starting rot serices\n")
+	logger.Infof("Starting rot serices")
 
 	server := mts.Server(mux, ":8443")
 	err = server.ListenAndServeTLS("", "")

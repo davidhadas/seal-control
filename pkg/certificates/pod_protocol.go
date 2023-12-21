@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Knative Authors
+Copyright 2023 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -29,11 +28,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
-
-	"golang.org/x/crypto/hkdf"
 )
 
 type PodMessageReqSecret struct {
@@ -43,7 +39,7 @@ type PodMessageReqSecret struct {
 
 type PodMessageReq struct {
 	secret    PodMessageReqSecret // Unencrypted Secret
-	Secret    []byte              // Encrupted Secret
+	Secret    []byte              // Encrypted Secret
 	Hostnames []string            // more names requested for the certificate
 }
 
@@ -250,15 +246,18 @@ func (pm *PodMessage) SetWorkloadKey(symetricKey []byte, index int) error {
 	if len(symetricKey) != 32 {
 		return fmt.Errorf("ilegal length for symetricKey")
 	}
-	workloadKey := make([]byte, 32)
+	/*
+		workloadKey := make([]byte, 32)
 
-	hkdf := hkdf.New(sha256.New, symetricKey, nil, nil)
-	_, err := io.ReadFull(hkdf, workloadKey)
-	if err != nil {
-		return fmt.Errorf("error deriving workloadKey: %w", err)
-	}
+		hkdf := hkdf.New(sha256.New, symetricKey, nil, nil)
+		_, err := io.ReadFull(hkdf, workloadKey)
+		if err != nil {
+			return fmt.Errorf("error deriving workloadKey: %w", err)
+		}
 
-	pm.WorkloadKey[index] = base64.StdEncoding.EncodeToString(workloadKey)
+		pm.WorkloadKey[index] = base64.StdEncoding.EncodeToString(workloadKey)
+	*/
+	pm.WorkloadKey[index] = base64.StdEncoding.EncodeToString(symetricKey)
 	if pm.CurrentWKey < 0 {
 		pm.CurrentWKey = index
 	}
@@ -290,7 +289,7 @@ func CreatePodMessage(pmr *PodMessageReq) (*PodMessage, error) {
 	servicename := pmr.secret.ServiceName
 	workloadCaKeyRing, err := GetCA(workload)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get a CA %s: %v\n", workload, err)
+		return nil, fmt.Errorf("Failed to get a CA %s: %v", workload, err)
 	}
 	//sans := []string{"any", strings.ToLower(pmr.PodName), "myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"}
 	sans := []string{"any", strings.ToLower(servicename)}
@@ -300,7 +299,7 @@ func CreatePodMessage(pmr *PodMessageReq) (*PodMessage, error) {
 
 	privateKeyBlock, certBlock, err := createPodCert(workloadCaKeyRing.prkPem, workloadCaKeyRing.certPem, workload, sans...)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot create pod cert for pod %s: %w\n", servicename, err)
+		return nil, fmt.Errorf("Cannot create pod cert for pod %s: %w", servicename, err)
 	}
 	podMessage := NewPodMessage(servicename)
 
@@ -314,16 +313,16 @@ func CreatePodMessage(pmr *PodMessageReq) (*PodMessage, error) {
 	podMessage.SetPrivateKey(pem.EncodeToMemory(privateKeyBlock))
 	err = podMessage.SetWorkloadKey(workloadCaKeyRing.sKeys[workloadCaKeyRing.latestSKey], workloadCaKeyRing.latestSKey)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot set workload key for pod %s: %w\n", servicename, err)
+		return nil, fmt.Errorf("Cannot set workload key for pod %s: %w", servicename, err)
 	}
 	for index, cert := range workloadCaKeyRing.sKeys {
 		if index != workloadCaKeyRing.latestSKey {
 			if err != nil {
-				return nil, fmt.Errorf("Cannot decode string workload key for pod %s: %w\n", servicename, err)
+				return nil, fmt.Errorf("Cannot decode string workload key for pod %s: %w", servicename, err)
 			}
 			err = podMessage.SetWorkloadKey(cert, index)
 			if err != nil {
-				return nil, fmt.Errorf("Cannot set workload key for pod %s: %w\n", servicename, err)
+				return nil, fmt.Errorf("Cannot set workload key for pod %s: %w", servicename, err)
 			}
 		}
 	}
@@ -348,7 +347,11 @@ func CreatePodMessage(pmr *PodMessageReq) (*PodMessage, error) {
 }
 
 func GetTlsFromPodMessage(podMessage *PodMessage) (*tls.Certificate, *x509.CertPool, error) {
-	caCertPool := x509.NewCertPool()
+	//caCertPool := NewCertPool()
+	caCertPool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to obtain SystemCertPool: %w", err)
+	}
 	for _, caString := range podMessage.Ca {
 		ca, err := base64.StdEncoding.DecodeString(caString)
 		if err != nil {

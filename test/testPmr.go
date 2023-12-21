@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2022 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,14 +29,14 @@ func testPmr() bool {
 
 	err := pmr.Encrypt([]byte("abcdef0123456789"))
 	if err != nil {
-		logger.Infof("Failed Encrypt PMR: %v\n", err)
+		logger.Infof("Failed Encrypt PMR: %v", err)
 		return false
 	}
 	err = pmr.Decrypt([]byte("abcdef0123456789"))
 	if err != nil {
-		logger.Infof("Failed Decrypt PMR:  %v\n", err)
+		logger.Infof("Failed Decrypt PMR:  %v", err)
 		return false
 	}
-	logger.Infof("PMR:  %v\n", pmr)
+	logger.Infof("PMR:  %v", pmr)
 	return true
 }

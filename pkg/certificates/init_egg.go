@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Knative Authors
+Copyright 2023 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,16 +25,36 @@ import (
 )
 
 type InitEgg struct {
-	RotUrl     string   `json:"rot"`
-	EncIv      []byte   `json:"iv"`
-	EncPmr     []byte   `json:"epmr"`
-	PrivateKey string   `json:"prk"`
-	Cert       string   `json:"cert"`
-	Ca         []string `json:"ca"`
+	RotUrl     string            `json:"rot"`
+	EncIv      []byte            `json:"iv"`
+	EncPmr     []byte            `json:"epmr"`
+	PrivateKey string            `json:"prk"`
+	Cert       string            `json:"cert"`
+	Ca         []string          `json:"ca"`
+	Options    map[string]string `json:"options"`
+}
+
+func NewInitEgg() *InitEgg {
+	return &InitEgg{
+		Options: make(map[string]string),
+	}
+}
+
+func (egg *InitEgg) SetTorUrl(url string) {
+	egg.RotUrl = url
+}
+
+func (egg *InitEgg) SetOption(key string, val string) {
+	egg.Options[key] = val
+}
+
+func (egg *InitEgg) GetOption(key string) string {
+	return egg.Options[key]
 }
 
 func (egg *InitEgg) AddCa(ca []byte) {
 	egg.Ca = append(egg.Ca, base64.StdEncoding.EncodeToString(ca))
+
 }
 
 func (egg *InitEgg) SetPrivateKey(privateKey []byte) {
@@ -58,7 +78,7 @@ func (egg *InitEgg) SetCert(cert []byte) {
 func (egg *InitEgg) Encode() (string, error) {
 	jegg, err := json.Marshal(egg)
 	if err != nil {
-		return "", fmt.Errorf("Failed to marshal egg: %w\n", err)
+		return "", fmt.Errorf("Failed to marshal egg: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(jegg), nil
 }
@@ -66,11 +86,11 @@ func (egg *InitEgg) Encode() (string, error) {
 func (egg *InitEgg) Decode(eegg string) error {
 	jegg, err := base64.StdEncoding.DecodeString(eegg)
 	if err != nil {
-		return fmt.Errorf("Failed to decode base64 of egg: %w\n", err)
+		return fmt.Errorf("Failed to decode base64 of egg: %w", err)
 	}
 	err = json.Unmarshal(jegg, egg)
 	if err != nil {
-		return fmt.Errorf("Failed to unmarshal egg: %w\n", err)
+		return fmt.Errorf("Failed to unmarshal egg: %w", err)
 	}
 	return nil
 }
@@ -94,7 +114,11 @@ func (egg *InitEgg) GetCert() (*tls.Certificate, error) {
 
 func (egg *InitEgg) GetCaPool() (*x509.CertPool, error) {
 
-	caCertPool := x509.NewCertPool()
+	//caCertPool := x509.NewCertPool()
+	caCertPool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("failed to obtain SystemCertPool: %w", err)
+	}
 	for _, caString := range egg.Ca {
 		ca, err := base64.StdEncoding.DecodeString(caString)
 		if err != nil {

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Knative Authors
+Copyright 2023 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,9 +24,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	acorev1 "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -72,14 +75,14 @@ func InitKubeMgr() error {
 
 		// Use the current context in kubeconfig
 		if kubeCfg, err = clientcmd.BuildConfigFromFlags("", *devKubeConfigStr); err != nil {
-			return fmt.Errorf("No Config found to access KubeApi! err: %w\n", err)
+			return fmt.Errorf("No Config found to access KubeApi! err: %w", err)
 		}
 	}
 
 	// Create a secrets client
 	KubeMgr.client, err = kubernetes.NewForConfig(kubeCfg)
 	if err != nil {
-		return fmt.Errorf("Failed to configure KubeApi using config: %w\n", err)
+		return fmt.Errorf("Failed to configure KubeApi using config: %w", err)
 	}
 	return nil
 }
@@ -125,6 +128,84 @@ func (kubeMgr *KubeMgrStruct) CreateCa(workloadName string) (*v1.Secret, error) 
 func (kubeMgr *KubeMgrStruct) UpdateCA(secret *v1.Secret) (*v1.Secret, error) {
 	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	return secrets.Update(context.Background(), secret, metav1.UpdateOptions{})
+}
+
+func (kubeMgr *KubeMgrStruct) ApplySecret(secret *acorev1.SecretApplyConfiguration) (*v1.Secret, error) {
+	secrets := kubeMgr.client.CoreV1().Secrets(*secret.Namespace)
+	return secrets.Apply(context.Background(), secret, metav1.ApplyOptions{FieldManager: "application/apply-patch"})
+}
+
+func (kubeMgr *KubeMgrStruct) SetDeployment(deployment *appsv1.Deployment) error {
+	if deployment.Namespace == "" {
+		deployment.Namespace = "default"
+	}
+	deployments := kubeMgr.client.AppsV1().Deployments(deployment.Namespace)
+	_, err := deployments.Get(context.Background(), deployment.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			_, err = deployments.Create(context.Background(), deployment, metav1.CreateOptions{FieldManager: "seal"})
+			if err != nil {
+				return fmt.Errorf("Failed to create deployment: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("Failed to get deployment %w", err)
+	}
+	_, err = deployments.Update(context.Background(), deployment, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("Failed to update deployment: %w", err)
+	}
+	return nil
+}
+
+func (kubeMgr *KubeMgrStruct) SetSecret(secret *v1.Secret) error {
+	if secret.Namespace == "" {
+		secret.Namespace = "default"
+	}
+	secrets := kubeMgr.client.CoreV1().Secrets(secret.Namespace)
+	_, err := secrets.Get(context.Background(), secret.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			_, err = secrets.Create(context.Background(), secret, metav1.CreateOptions{})
+			if err != nil {
+				return fmt.Errorf("Failed to create secret: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("Failed to get secret %w", err)
+	}
+	_, err = secrets.Update(context.Background(), secret, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("Failed to update secret: %w", err)
+	}
+	return nil
+}
+func (kubeMgr *KubeMgrStruct) SetConfigMap(configmap *v1.ConfigMap) error {
+	if configmap.Namespace == "" {
+		configmap.Namespace = "default"
+	}
+	configmaps := kubeMgr.client.CoreV1().ConfigMaps(configmap.Namespace)
+	_, err := configmaps.Get(context.Background(), configmap.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			_, err = configmaps.Create(context.Background(), configmap, metav1.CreateOptions{})
+			if err != nil {
+				return fmt.Errorf("Failed to create configmap: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("Failed to get configmap %w", err)
+	}
+	_, err = configmaps.Update(context.Background(), configmap, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("Failed to update configmap: %w", err)
+	}
+	return nil
+}
+
+func (kubeMgr *KubeMgrStruct) ApplyCm(cm *acorev1.ConfigMapApplyConfiguration) (*v1.ConfigMap, error) {
+	cms := kubeMgr.client.CoreV1().ConfigMaps(*cm.Namespace)
+	return cms.Apply(context.Background(), cm, metav1.ApplyOptions{FieldManager: "application/apply-patch"})
 }
 
 func (kubeMgr *KubeMgrStruct) ListCas() ([]string, error) {

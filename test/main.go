@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2022 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,12 +22,12 @@ import (
 )
 
 func main() {
-	log.InitLog()
+	log.InitLog("Debug")
 	logger := log.Log
 
 	err := certificates.InitKubeMgr()
 	if err != nil {
-		logger.Infof("Failed to create a kubeMgr: %v\n", err)
+		logger.Infof("Failed to create a kubeMgr: %v", err)
 		return
 	}
 
@@ -41,6 +41,11 @@ func main() {
 	}
 
 	if !testRot() {
+		logger.Infof("FAIL!!!")
+		return
+	}
+
+	if !testDataEnc() {
 		logger.Infof("FAIL!!!")
 		return
 	}

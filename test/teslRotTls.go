@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2022 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ func testRot() bool {
 	}
 	scert, scaPool, err := certificates.CreateRotService()
 	if err != nil {
-		logger.Infof("Failed to CreatePodMessage: %v\n", err)
+		logger.Infof("Failed to CreatePodMessage: %v", err)
 		return false
 	}
 	mts := &certificates.MutualTls{
@@ -52,18 +52,18 @@ func testRot() bool {
 	certificates.KubeMgr.DeleteCa("my-test-workload")
 	_, err = certificates.CreateNewCA("my-test-workload", "https://127.0.0.1:8443")
 	if err != nil {
-		logger.Infof("Failed to CreateNewCA: %v\n", err)
+		logger.Infof("Failed to CreateNewCA: %v", err)
 		return false
 	}
 	// client
 	egg, err := certificates.CreateInit("my-test-workload", "init")
 	if err != nil {
-		logger.Infof("Failed to CreateInit: %v\n", err)
+		logger.Infof("Failed to CreateInit: %v", err)
 		return false
 	}
 	eegg, err := egg.Encode()
 	if err != nil {
-		logger.Infof("Failed to encode egg: %v\n", err)
+		logger.Infof("Failed to encode egg: %v", err)
 		return false
 	}
 
@@ -77,7 +77,7 @@ func testRot() bool {
 }
 
 func rot_client(eegg string, hostnames []string) bool {
-	protocolMessage, err := certificates.Rot_client(eegg, hostnames)
+	protocolMessage, _, err := certificates.Rot_client(eegg, hostnames)
 	if err != nil {
 		fmt.Println("Client fail to get podMassage using egg:", err)
 		return false

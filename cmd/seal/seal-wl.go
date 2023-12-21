@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2022 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,20 +17,18 @@ limitations under the License.
 package main
 
 import (
-	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
+	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
-func wl() {
-	if *helpFlag || *hFlag {
-		fmt.Println("-H")
-		wl_help()
-		os.Exit(1)
-	}
+func wl(args []string) {
 	err := certificates.InitKubeMgr()
 	if err != nil {
 		fmt.Printf("Failed to access local kubernetes cluster: %v\n", err)
@@ -42,9 +40,7 @@ func wl() {
 		fmt.Printf("Initialize ROT CA using\n\t`sys init <ROT-URL>`\n")
 		return
 	}
-	numArgs := len(os.Args)
-	switch {
-	case numArgs == 2:
+	if len(args) == 0 {
 		fmt.Printf("List of worklodas:\n")
 		cas, err := certificates.KubeMgr.ListCas()
 		if err != nil {
@@ -58,26 +54,29 @@ func wl() {
 			fmt.Printf("  %s\n", ca)
 		}
 		return
-	case numArgs == 3:
-		workload := os.Args[2]
-		err = certificates.ValidateWorkloadName(workload)
-		if err != nil {
-			fmt.Printf("Ilegal workload name: %v\n", err)
-			return
-		}
-		caKeyRing, err := certificates.GetCA(workload)
+	}
+	workload := os.Args[2]
+	err = certificates.ValidateWorkloadName(workload)
+	if err != nil {
+		fmt.Printf("Ilegal workload name: %v\n", err)
+		return
+	}
+	args = args[1:]
+	if len(args) == 0 {
+		workloadCaKeyRing, err := certificates.GetCA(workload)
 		if err != nil {
 			fmt.Printf("Failed to load workload CA: %v\n", err)
 			fmt.Printf("Initialize workload CA using\n\t`wl %s init`\n", workload)
 			return
 		}
 		fmt.Printf("Seal workload %s:\n", workload)
-		fmt.Printf("  ROT URL:      %s\n", caKeyRing.RotUrl())
-		fmt.Printf("  Certs:        %d\n", caKeyRing.NumCerts())
-		fmt.Printf("  PrivateKeys:  %d\n", caKeyRing.NumPrivateKeys())
-		fmt.Printf("  SymetricKeys: %d\n", caKeyRing.NumSymetricKeys())
+		fmt.Printf("  ROT URL:      %s\n", workloadCaKeyRing.RotUrl())
+		fmt.Printf("  Certs:        %d\n", workloadCaKeyRing.NumCerts())
+		fmt.Printf("  PrivateKeys:  %d\n", workloadCaKeyRing.NumPrivateKeys())
+		fmt.Printf("  SymetricKeys: %d\n", workloadCaKeyRing.NumSymetricKeys())
 		fmt.Printf("  Peers:\n")
-		peers := caKeyRing.Peers()
+		fmt.Printf("  key:      %s\n", base64.StdEncoding.EncodeToString(workloadCaKeyRing.GetSymetricKey()))
+		peers := workloadCaKeyRing.Peers()
 		if len(peers) == 0 {
 			fmt.Printf("    (Empty)\n")
 		}
@@ -85,104 +84,46 @@ func wl() {
 			fmt.Printf("    %s => %s\n", client, servers)
 		}
 		return
-	case numArgs == 4:
-		workload := os.Args[2]
-		cmd := os.Args[3]
-		err = certificates.ValidateWorkloadName(workload)
-		if err != nil {
-			fmt.Printf("Ilegal workload name: %v\n", err)
-			return
-		}
-		if cmd == "init" {
-			rotUrl := certificates.KubeMgr.RotCaKeyRing.RotUrl()
-			wl_init(workload, rotUrl)
-			return
-		}
-		if cmd == "del" || cmd == "delete" {
-			wl_del(workload)
-			return
-		}
+	}
 
-		switch cmd {
-		case "egg":
-			wl_egg(workload, "any")
-			return
-		case "cert":
-			wl_cert(workload, "any")
-			return
-		}
-	case numArgs == 5:
-		workload := os.Args[2]
-		err = certificates.ValidateWorkloadName(workload)
-		if err != nil {
-			fmt.Printf("Ilegal workload name: %v\n", err)
-			return
-		}
-		_, err := certificates.GetCA(workload)
-		if err != nil {
-			fmt.Printf("Failed to load workload CA: %v\n", err)
-			fmt.Printf("Initialize workload CA using\n\t`wl %s init`\n", workload)
-			return
-		}
-
-		servicename := os.Args[4]
-		err = certificates.ValidateSevriceName(servicename)
-		if err != nil {
-			fmt.Printf("Ilegal service name: %v\n", err)
-			return
-		}
-
-		switch os.Args[3] {
-		case "egg":
-			wl_egg(workload, servicename)
-			return
-		case "cert":
-
-			wl_cert(workload, servicename)
-			return
-		}
-	case numArgs > 5:
-		workload := os.Args[2]
-		err = certificates.ValidateWorkloadName(workload)
-		if err != nil {
-			fmt.Printf("Ilegal workload name: %v\n", err)
-			return
-		}
+	switch args[0] {
+	case "apply":
 		workloadCaKeyRing, err := certificates.GetCA(workload)
 		if err != nil {
 			fmt.Printf("Failed to load workload CA: %v\n", err)
 			fmt.Printf("Initialize workload CA using\n\t`wl %s init`\n", workload)
 			return
 		}
-		switch os.Args[3] {
-		case "client":
-			client := os.Args[4]
-			err = certificates.ValidateSevriceName(client)
-			if err != nil {
-				fmt.Printf("Ilegal client service name: %v\n", err)
-				return
-			}
-			if os.Args[5] != "servers" {
-				wl_help()
-				return
-			}
-			servers := []string(make([]string, 0))
-
-			for i := 6; i < numArgs; i++ {
-				server := os.Args[i]
-				err = certificates.ValidateSevriceName(server)
-				if err != nil {
-					fmt.Printf("Ilegal server service name: %v\n", err)
-					return
-				}
-				servers = append(servers, server)
-			}
-
-			wl_connect(workloadCaKeyRing, workload, client, servers)
+		apply(workloadCaKeyRing, args[1:])
+	case "init":
+		if len(args) > 1 {
+			wl_help()
+		} else {
+			rotUrl := certificates.KubeMgr.RotCaKeyRing.RotUrl()
+			wl_init(workload, rotUrl)
+		}
+	case "del", "delete":
+		if len(args) > 1 {
+			wl_help()
+		} else {
+			wl_del(workload)
+		}
+	case "egg":
+		wl_egg(workload, args[1:])
+	case "cert":
+		wl_cert(workload, args[1:])
+	case "client":
+		workloadCaKeyRing, err := certificates.GetCA(workload)
+		if err != nil {
+			fmt.Printf("Failed to load workload CA: %v\n", err)
+			fmt.Printf("Initialize workload CA using\n\t`wl %s init`\n", workload)
 			return
 		}
+		wl_connect(workloadCaKeyRing, workload, args[1:])
+	default:
+		wl_help()
 	}
-	wl_help()
+	return
 }
 
 func wl_help() {
@@ -190,21 +131,59 @@ func wl_help() {
 	fmt.Printf("Subcommands:\n\n")
 	fmt.Printf("  seal wl\n")
 	fmt.Printf("  seal wl <Workload-Name>\n")
+	fmt.Printf("  seal wl <Workload-Name> apply -f -\n")
+	fmt.Printf("  seal wl <Workload-Name> apply -f [<Filename>]+\n")
 	fmt.Printf("  seal wl <Workload-Name> del\n")
 	fmt.Printf("  seal wl <Workload-Name> init\n")
 	fmt.Printf("  seal wl <Workload-Name> egg\n")
 	fmt.Printf("  seal wl <Workload-Name> cert\n")
 	fmt.Printf("  seal wl <Workload-Name> egg <Name>\n")
 	fmt.Printf("  seal wl <Workload-Name> cert <Name>\n")
-	fmt.Printf("  seal wl <Workload-Name> client <Name> servers *[,<Name>]...\n")
+	fmt.Printf("  seal wl <Workload-Name> client <Name>\n")
+	fmt.Printf("  seal wl <Workload-Name> client <Name> servers [ <Name>]*\n")
 }
 
-func wl_connect(workloadCaKeyRing *certificates.KeyRing, workload string, client string, servers []string) {
+func wl_connect(workloadCaKeyRing *certificates.KeyRing, workload string, args []string) {
+	var client string
+	var servers []string
+	if len(args) == 0 {
+		wl_help()
+		return
+	}
+	// one or more args
+	client = args[0]
+	err := certificates.ValidateSevriceName(client)
+	if err != nil {
+		fmt.Printf("Ilegal client service name: %v\n", err)
+		return
+	}
+
+	args = args[1:]
+	if len(args) == 0 {
+		servers = []string{"any"}
+	} else {
+		// more than one args
+		if args[0] != "servers" {
+			wl_help()
+			return
+		}
+		args = args[1:]
+
+		servers = []string(make([]string, 0))
+		for _, server := range args {
+			err = certificates.ValidateSevriceName(server)
+			if err != nil {
+				fmt.Printf("Ilegal server service name: %v\n", err)
+				return
+			}
+			servers = append(servers, server)
+		}
+	}
 	workloadCaKeyRing.AddPeer(client, strings.Join(servers, ","))
 
-	err := certificates.UpdateCA(workload, workloadCaKeyRing)
+	err = certificates.UpdateCA(workload, workloadCaKeyRing)
 	if err != nil {
-		fmt.Printf("Failed to update secret: %w\n", err)
+		fmt.Printf("Failed to update secret: %v\n", err)
 	}
 }
 
@@ -244,7 +223,28 @@ func wl_del(workload string) {
 		certificates.KubeMgr.DeleteCa(workload)
 	}
 }
-func wl_cert(workload string, servicename string) {
+
+func wl_cert(workload string, args []string) {
+	var servicename string
+	switch len(args) {
+	case 0:
+		servicename = "any"
+	case 1:
+		servicename = args[0]
+	default:
+		wl_help()
+		return
+	}
+
+	err := certificates.ValidateSevriceName(servicename)
+	if err != nil {
+		fmt.Printf("Ilegal service name: %v\n", err)
+		return
+	}
+
+	var certificate *x509.Certificate
+	var cacertificates []*x509.Certificate
+
 	pmr := certificates.NewPodMessageReq(workload, servicename)
 	podMessage, err := certificates.CreatePodMessage(pmr)
 	if err != nil {
@@ -257,6 +257,7 @@ func wl_cert(workload string, servicename string) {
 		fmt.Printf("Failed to get CA Pem: %v\n", err)
 		return
 	}
+
 	cert, pkey, err := podMessage.GetCertPem()
 	if err != nil {
 		fmt.Printf("Failed to get Cert and Prk Pems: %v\n", err)
@@ -268,13 +269,22 @@ func wl_cert(workload string, servicename string) {
 		fmt.Printf("Failed creating CA PEM: %v\n", err)
 		return
 	}
-
-	certificate, err := tls.X509KeyPair(cert, pkey)
+	block, _ := pem.Decode(cert)
+	certificate, err = x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		fmt.Printf("tls.X509KeyPair failed: %v", err)
+		fmt.Printf("tls.ParseCertificate cert failed: %v\n", err)
 		return
 	}
-	err = toFile("x509.cert", certificate.Certificate[0])
+	block, _ = pem.Decode(cas)
+	certificate, err = x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		fmt.Printf("tls.ParseCertificate ca failed: %v\n", err)
+		return
+	}
+	encoder := pkcs12.Encoder{}
+	pfx, err := encoder.Encode(pkey, certificate, cacertificates, "")
+
+	err = toFile("certificate.pfx", pfx)
 	if err != nil {
 		fmt.Printf("Failed creating PRK PEM: %v\n", err)
 		return
@@ -290,7 +300,7 @@ func wl_cert(workload string, servicename string) {
 		fmt.Printf("Failed creating PRK PEM: %v\n", err)
 		return
 	}
-	fmt.Printf("ca.pem, cert.pem, prk.pem files created\n")
+	fmt.Printf("ca.pem, cert.pem, prk.pem, certificate.pfx files created\n")
 
 }
 
@@ -308,7 +318,23 @@ func toFile(filename string, data []byte) error {
 	return nil
 }
 
-func wl_egg(workload string, servicename string) {
+func wl_egg(workload string, args []string) {
+	var servicename string
+	switch len(args) {
+	case 0:
+		servicename = "any"
+	case 1:
+		servicename = args[0]
+	default:
+		wl_help()
+	}
+
+	err := certificates.ValidateSevriceName(servicename)
+	if err != nil {
+		fmt.Printf("Ilegal service name: %v\n", err)
+		return
+	}
+
 	egg, err := certificates.CreateInit(workload, servicename)
 	if err != nil {
 		fmt.Printf("Failed to create egg: %v\n", err)

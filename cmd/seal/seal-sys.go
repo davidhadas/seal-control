@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2022 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,25 +18,18 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
 )
 
-func sys() {
-	if *helpFlag || *hFlag {
-		fmt.Println("-H")
-		sys_help()
-		os.Exit(1)
-	}
+func sys(args []string) {
 	err := certificates.InitKubeMgr()
 	if err != nil {
 		fmt.Printf("Failed to access local kubernetes cluster: %v\n", err)
 		return
 	}
 
-	switch len(os.Args) {
-	case 2:
+	if len(args) == 0 {
 		err = certificates.LoadRotCa()
 		if err != nil {
 			fmt.Printf("Failed to load ROT CA: %v\n", err)
@@ -49,26 +42,32 @@ func sys() {
 		fmt.Printf("  PrivateKeys:  %d\n", certificates.KubeMgr.RotCaKeyRing.NumPrivateKeys())
 		fmt.Printf("  SymetricKeys: %d\n", certificates.KubeMgr.RotCaKeyRing.NumSymetricKeys())
 		return
-	case 3:
-		switch os.Args[2] {
-		case "del", "delete":
-			sys_del()
-			return
-		}
-	case 4:
-		switch os.Args[2] {
-		case "init":
-			sys_init(os.Args[3])
-			return
-		case "url":
-			sys_url(os.Args[3])
-			return
-		}
 	}
-	sys_help()
+	switch args[0] {
+	case "del", "delete":
+		sys_del(args[1:])
+	case "init":
+		sys_init(args[1:])
+	case "url":
+		sys_url(args[1:])
+	default:
+		sys_help()
+	}
+	return
+
 }
 
-func sys_init(rotUrl string) {
+func sys_init(args []string) {
+	if len(args) != 1 {
+		sys_help()
+		return
+	}
+	if args[0] == "-h" {
+		sys_help()
+		return
+	}
+	rotUrl := args[0]
+
 	if !certificates.CANotFound("") {
 		fmt.Printf("Delete ROT CA first\n\t`sys del`\n")
 		return
@@ -88,7 +87,17 @@ func sys_init(rotUrl string) {
 	fmt.Printf("  SymetricKeys: %d\n", certificates.KubeMgr.RotCaKeyRing.NumSymetricKeys())
 }
 
-func sys_url(rotUrl string) {
+func sys_url(args []string) {
+	if len(args) != 1 {
+		sys_help()
+		return
+	}
+	if args[0] == "-h" {
+		sys_help()
+		return
+	}
+	rotUrl := args[0]
+
 	err := certificates.LoadRotCa()
 	if err != nil {
 		fmt.Printf("Failed to load ROT CA: %v\n", err)
@@ -107,7 +116,12 @@ func sys_url(rotUrl string) {
 	}
 }
 
-func sys_del() {
+func sys_del(args []string) {
+	if len(args) != 0 {
+		sys_help()
+		return
+	}
+
 	if certificates.CANotFound("") {
 		fmt.Printf("ROT CA does not exist\n")
 		return

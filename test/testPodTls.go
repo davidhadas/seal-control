@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2022 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -39,13 +39,13 @@ func testPod() bool {
 
 	_, err = certificates.CreateNewCA("my-workload-name", "https://127.0.0.1:7443")
 	if err != nil {
-		logger.Infof("Failed to create a CA: %v\n", err)
+		logger.Infof("Failed to create a CA: %v", err)
 		return false
 	}
 
 	_, err = certificates.GetCA("my-workload-name")
 	if err != nil {
-		logger.Infof("Failed to get a CA: %v\n", err)
+		logger.Infof("Failed to get a CA: %v", err)
 		return false
 	}
 
@@ -53,15 +53,15 @@ func testPod() bool {
 
 	podMessage, err := certificates.CreatePodMessage(pmr)
 	if err != nil {
-		logger.Infof("Failed to CreatePodMessage: %v\n", err)
+		logger.Infof("Failed to CreatePodMessage: %v", err)
 		return false
 	}
 	err = certificates.KubeMgr.DeleteCa("my-workload-name")
 	if err != nil {
-		logger.Infof("Failed to delete a CA: %v\n", err)
+		logger.Infof("Failed to delete a CA: %v", err)
 		return false
 	}
-	logger.Infof("Done processing secret\n")
+	logger.Infof("Done processing secret")
 	//certificates.RenewCA(kubeMgr, caKeyRing)
 	//certificates.RenewCA(kubeMgr, caKeyRing)
 	//certificates.RenewSymetricKey(kubeMgr, caKeyRing)

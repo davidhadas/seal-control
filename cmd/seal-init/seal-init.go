@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2023 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ import (
 // WIP
 
 func main() {
-	log.InitLog()
+	log.InitLog("Debug")
 	logger := log.Log
 
 	logger.Infof("Seal init starting")
@@ -57,21 +57,28 @@ func main() {
 		}
 	}
 
-	protocolMessage, err := certificates.Rot_client(string(eegg), hsplits)
+	protocolMessage, options, err := certificates.Rot_client(string(eegg), hsplits)
 	if err != nil {
 		logger.Infof("Client fail to get podMassage using egg:", err)
 		os.Exit(1)
 	}
-	jegg, err := json.Marshal(protocolMessage)
+	jPM, err := json.Marshal(protocolMessage)
 	if err != nil {
 		logger.Infof("Fail to marshal egg:", err)
 		os.Exit(1)
 	}
-	err = os.WriteFile(podmessagepath, jegg, 0644)
+	err = os.WriteFile(podmessagepath, jPM, 0644)
 	if err != nil {
 		logger.Infof("Fail to create a file:", err)
 		os.Exit(1)
 	}
 	logger.Infof("Created %s", podmessagepath)
+	wks, current, err := certificates.GetWKeysFromPodMessage(protocolMessage)
+	if err != nil {
+		logger.Infof("Fail to get workload keys:", err)
+		os.Exit(1)
+	}
+	symetricKey := wks[current]
+	certificates.UnsealDir("/mnt", "/seal", symetricKey, options)
 	logger.Infof("Seal init terminating")
 }

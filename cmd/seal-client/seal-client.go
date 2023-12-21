@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2023 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import (
 //WIP
 
 func main() {
-	log.InitLog()
+	log.InitLog("Debug")
 	logger := log.Log
 	var url string
 
@@ -55,7 +55,7 @@ func main() {
 	var podMessage certificates.PodMessage
 	bytes, err := os.ReadFile(podmessagepath)
 	if err != nil {
-		logger.Infof("fail to create a file: %v", err)
+		logger.Infof("fail to read a file: %v", err)
 		return
 	}
 	err = json.Unmarshal(bytes, &podMessage)
@@ -95,7 +95,7 @@ func client(mt *certificates.MutualTls, address string) {
 		return
 	}
 	req.Header.Add("Content-Type", "application/json")
-	logger.Infof("Initiating client Host %s\n", req.Host)
+	logger.Infof("Initiating client Host %s", req.Host)
 	// Send the HTTP request
 	resp, err := client.Do(req)
 	if err != nil {

@@ -16,6 +16,16 @@ spec:
         app.kubernetes.io/name: MyApp
     spec:
       containers:
+      - name: ubuntu
+        image: ubuntu
+        command: ["sleep", "123456"]
+        volumeMounts:
+        - name: hack-volume
+          mountPath: /hack
+        - name: cm-volume
+          mountPath: /unsealed/cm
+        - name: shared-volume
+          mountPath: /seal
       - name: seal-server
         image: ko://github.com/davidhadas/seal-control/cmd/seal-server
         imagePullPolicy: IfNotPresent
@@ -24,10 +34,12 @@ spec:
             mountPath: /seal
       - name: seal-client
         image: ko://github.com/davidhadas/seal-control/cmd/seal-client
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: IfNotPresent  
         volumeMounts:
-          - name: shared-volume
-            mountPath: /seal
+        - name: shared-volume
+          mountPath: /seal
+        - name: hack-volume
+          mountPath: /xxx/ko-app/
         env:
         - name: URL
           value: "https://127.0.0.1:9443"
@@ -36,12 +48,20 @@ spec:
         image: ko://github.com/davidhadas/seal-control/cmd/seal-init
         imagePullPolicy: IfNotPresent
         volumeMounts:
-          - name: shared-volume
-            mountPath: /seal
+        - name: cm-volume
+          mountPath: /unsealed/cm
+        - name: shared-volume
+          mountPath: /seal
         env:
         - name: HOSTNAMES
           value: "myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"
       volumes:
+      - name: hack-volume
+        persistentVolumeClaim:
+          claimName: silver-pvc
+      - name: cm-volume
+        configMap:
+          name: game-config
       - name: shared-volume
         emptyDir: {}
 ---
@@ -62,8 +82,6 @@ spec:
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  annotations:
-    openshift.io/host.generated: "true"
   labels:
     app.kubernetes.io/name: MyApp
   name: myapp
@@ -77,3 +95,6 @@ spec:
     name: myapp
     weight: 100
   wildcardPolicy: None
+
+
+  

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Knative Authors
+Copyright 2023 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -52,7 +52,7 @@ func (mt *MutualTls) Verify() func(cs tls.ConnectionState) error {
 		logger := log.Log
 		if len(cs.PeerCertificates) == 0 {
 			// Should never happen on a server side
-			logger.Infof("mTLS %s: Failed to verify connection. Certificate is missing\n", me)
+			logger.Infof("mTLS %s: Failed to verify connection. Certificate is missing", me)
 			return fmt.Errorf("mTLS %s: Failed to verify connection. Certificate is missing", me)
 		}
 
@@ -63,20 +63,20 @@ func (mt *MutualTls) Verify() func(cs tls.ConnectionState) error {
 
 		_, err := cs.PeerCertificates[0].Verify(opts)
 		if err != nil {
-			logger.Infof("mTLS %s: Failed to verify - Looking for: valid certifdicate: %v\n", err)
-			return fmt.Errorf("mTLS %s: Failed to verify - Looking for: valid certifdicate: %v\n", err)
+			logger.Infof("mTLS %s: Failed to verify - Looking for: valid certifdicate: %v", me, err)
+			return fmt.Errorf("mTLS %s: Failed to verify - Looking for: valid certifdicate: %v", me, err)
 		}
 
 		names := cs.PeerCertificates[0].DNSNames
 		for _, match := range names {
 			if slices.Contains(mt.Peers, match) {
-				logger.Infof("mTLS %s: peer verified as %s!\n", me, match)
+				logger.Infof("mTLS %s: peer verified as %s!", me, match)
 				return nil
 			}
 		}
 
-		logger.Infof("mTLS %s: Failed to verify - Looking for: %v, but peer names are: %v\n", me, mt.Peers, names)
-		return fmt.Errorf("mTLS %s: Failed to verify - Looking for: %v, but peer names are: %v\n", me, mt.Peers, names)
+		logger.Infof("mTLS %s: Failed to verify - Looking for: %v, but peer names are: %v", me, mt.Peers, names)
+		return fmt.Errorf("mTLS %s: Failed to verify - Looking for: %v, but peer names are: %v", me, mt.Peers, names)
 	}
 }
 

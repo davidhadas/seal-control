@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Knative Authors
+Copyright 2022 David Hadas
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import (
 //WIP
 
 func main() {
-	log.InitLog()
+	log.InitLog("Debug")
 	logger := log.Log
 
 	eggpath := os.Getenv("KO_DATA_PATH")
@@ -85,7 +85,7 @@ func client(mt *certificates.MutualTls, address string) {
 
 	time.Sleep(time.Second)
 	client := mt.Client()
-	logger.Infof("Initiating client %s\n", address)
+	logger.Infof("Initiating client %s", address)
 
 	// Create an HTTP request with custom headers
 	req, err := http.NewRequest("GET", address, nil)
@@ -94,7 +94,7 @@ func client(mt *certificates.MutualTls, address string) {
 		return
 	}
 	req.Header.Add("Content-Type", "application/json")
-	logger.Infof("Initiating client Host %s\n", req.Host)
+	logger.Infof("Initiating client Host %s", req.Host)
 	// Send the HTTP request
 	resp, err := client.Do(req)
 	if err != nil {
