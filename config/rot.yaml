@@ -23,6 +23,7 @@ subjects:
 roleRef:
   kind: Role 
   name: secret-reader
+  apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: apps/v1
 kind: Deployment
