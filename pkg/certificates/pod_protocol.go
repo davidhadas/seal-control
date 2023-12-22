@@ -81,7 +81,7 @@ func (pmr *PodMessageReq) Encrypt(key []byte) error {
 
 func (pmr *PodMessageReq) Decrypt(key []byte) error {
 	if len(pmr.Secret) < 2*aes.BlockSize {
-		return fmt.Errorf("Secret seems empty or corrupted")
+		return fmt.Errorf("secret seems empty or corrupted")
 	}
 	iv := pmr.Secret[:aes.BlockSize]
 	ciphertext := pmr.Secret[aes.BlockSize:]
@@ -109,10 +109,10 @@ func (pmr *PodMessageReq) Decrypt(key []byte) error {
 func ValidateWorkloadName(workload string) error {
 	l := len(workload)
 	if l > 60 || l < 3 {
-		return errors.New("Ilegal workload name legth")
+		return errors.New("ilegal workload name legth")
 	}
 	if !regexp.MustCompile(`^[a-z][a-z0-9\-]*$`).MatchString(workload) {
-		return errors.New(fmt.Sprintf("Ilegal workload characters"))
+		return fmt.Errorf("ilegal workload characters")
 	}
 	return nil
 }
@@ -120,10 +120,10 @@ func ValidateWorkloadName(workload string) error {
 func ValidateSevriceName(servicename string) error {
 	l := len(servicename)
 	if l > 63 || l < 3 {
-		return fmt.Errorf("Ilegal service name length: %s", servicename)
+		return fmt.Errorf("ilegal service name length: %s", servicename)
 	}
 	if !regexp.MustCompile(`^[a-z][a-z0-9\-]*$`).MatchString(servicename) {
-		return fmt.Errorf("Ilegal pod characters: %s", servicename)
+		return fmt.Errorf("ilegal pod characters: %s", servicename)
 	}
 	return nil
 }
@@ -131,7 +131,7 @@ func ValidateSevriceName(servicename string) error {
 func ValidateHostname(hostname string) error {
 	if hostname != "" {
 		if !strings.Contains(hostname, ".") {
-			return fmt.Errorf("Ilegal hostname: %s - must structured, e.g. 'myservice.example.com'", hostname)
+			return fmt.Errorf("ilegal hostname: %s - must structured, e.g. 'myservice.example.com'", hostname)
 		}
 	}
 	return nil
@@ -289,17 +289,15 @@ func CreatePodMessage(pmr *PodMessageReq) (*PodMessage, error) {
 	servicename := pmr.secret.ServiceName
 	workloadCaKeyRing, err := GetCA(workload)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get a CA %s: %v", workload, err)
+		return nil, fmt.Errorf("failed to get a CA %s: %v", workload, err)
 	}
 	//sans := []string{"any", strings.ToLower(pmr.PodName), "myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"}
 	sans := []string{"any", strings.ToLower(servicename)}
-	for _, hostname := range pmr.Hostnames {
-		sans = append(sans, hostname)
-	}
+	sans = append(sans, pmr.Hostnames...)
 
 	privateKeyBlock, certBlock, err := createPodCert(workloadCaKeyRing.prkPem, workloadCaKeyRing.certPem, workload, sans...)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot create pod cert for pod %s: %w", servicename, err)
+		return nil, fmt.Errorf("cannot create pod cert for pod %s: %w", servicename, err)
 	}
 	podMessage := NewPodMessage(servicename)
 
@@ -313,16 +311,16 @@ func CreatePodMessage(pmr *PodMessageReq) (*PodMessage, error) {
 	podMessage.SetPrivateKey(pem.EncodeToMemory(privateKeyBlock))
 	err = podMessage.SetWorkloadKey(workloadCaKeyRing.sKeys[workloadCaKeyRing.latestSKey], workloadCaKeyRing.latestSKey)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot set workload key for pod %s: %w", servicename, err)
+		return nil, fmt.Errorf("cannot set workload key for pod %s: %w", servicename, err)
 	}
 	for index, cert := range workloadCaKeyRing.sKeys {
 		if index != workloadCaKeyRing.latestSKey {
 			if err != nil {
-				return nil, fmt.Errorf("Cannot decode string workload key for pod %s: %w", servicename, err)
+				return nil, fmt.Errorf("cannot decode string workload key for pod %s: %w", servicename, err)
 			}
 			err = podMessage.SetWorkloadKey(cert, index)
 			if err != nil {
-				return nil, fmt.Errorf("Cannot set workload key for pod %s: %w", servicename, err)
+				return nil, fmt.Errorf("cannot set workload key for pod %s: %w", servicename, err)
 			}
 		}
 	}

@@ -137,5 +137,10 @@ func Rot_service(w http.ResponseWriter, r *http.Request) {
 
 	logger.Infof("Done processing secret")
 	bytes, err := json.Marshal(podMessage)
+	if err != nil {
+		logger.Infof("failed to marshal pod message: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	w.Write(bytes)
 }

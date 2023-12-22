@@ -18,7 +18,6 @@ package main
 
 import (
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -75,7 +74,6 @@ func wl(args []string) {
 		fmt.Printf("  PrivateKeys:  %d\n", workloadCaKeyRing.NumPrivateKeys())
 		fmt.Printf("  SymetricKeys: %d\n", workloadCaKeyRing.NumSymetricKeys())
 		fmt.Printf("  Peers:\n")
-		fmt.Printf("  key:      %s\n", base64.StdEncoding.EncodeToString(workloadCaKeyRing.GetSymetricKey()))
 		peers := workloadCaKeyRing.Peers()
 		if len(peers) == 0 {
 			fmt.Printf("    (Empty)\n")

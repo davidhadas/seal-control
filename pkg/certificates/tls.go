@@ -20,7 +20,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io"
 	"net/http"
 	"slices"
 	"time"
@@ -95,34 +94,36 @@ func (mt *MutualTls) GetTlsConfig() *tls.Config {
 	}
 }
 
-func client(caPool *x509.CertPool, cert *tls.Certificate, mt *MutualTls) {
-	client := mt.Client()
-	// Create an HTTP request with custom headers
-	req, err := http.NewRequest("GET", "https://127.0.0.1:8443", nil)
-	if err != nil {
-		fmt.Println("Error creating HTTP request:", err)
-		return
-	}
-	req.Header.Add("Authorization", "Bearer <token>")
-	req.Header.Add("Content-Type", "application/json")
+/*
+	func client(caPool *x509.CertPool, cert *tls.Certificate, mt *MutualTls) {
+		client := mt.Client()
+		// Create an HTTP request with custom headers
+		req, err := http.NewRequest("GET", "https://127.0.0.1:8443", nil)
+		if err != nil {
+			fmt.Println("Error creating HTTP request:", err)
+			return
+		}
+		req.Header.Add("Authorization", "Bearer <token>")
+		req.Header.Add("Content-Type", "application/json")
 
-	// Send the HTTP request
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Println("Error sending HTTP request:", err)
-		return
-	}
+		// Send the HTTP request
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Println("Error sending HTTP request:", err)
+			return
+		}
 
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("Error reading HTTP response body:", err)
-		return
-	}
+		// Read the response body
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println("Error reading HTTP response body:", err)
+			return
+		}
 
-	// Print the response body
-	fmt.Println(string(body))
-}
+		// Print the response body
+		fmt.Println(string(body))
+	}
+*/
 
 func (mt *MutualTls) Client() *http.Client {
 	return &http.Client{

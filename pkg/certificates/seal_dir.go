@@ -32,41 +32,41 @@ import (
 
 func UnsealArgs(symetricKey []byte, options map[string]string) (cmd string, args []string, err error) {
 	if len(os.Args) != 2 {
-		err = fmt.Errorf("Wrong number of arguments - should be '<Cyphertext>'")
+		err = fmt.Errorf("wrong number of arguments - should be '<Cyphertext>'")
 		return
 	}
 	if !isSealedString(os.Args[1]) {
-		err = fmt.Errorf("Argument should be sealed")
+		err = fmt.Errorf("argument should be sealed")
 		return
 	}
 	sealed, err := base64.StdEncoding.DecodeString(os.Args[1])
 	if err != nil {
-		err = fmt.Errorf("Failed to decode - should be Base64 '%s' - err %v", os.Args[0], err)
+		err = fmt.Errorf("failed to decode - should be Base64 '%s' - err %v", os.Args[0], err)
 		return
 	}
 
 	sd := NewSealData()
 	err = sd.Decrypt(symetricKey, "args", sealed)
 	if err != nil {
-		err = fmt.Errorf("Failed to Decrypt Args: %w", err)
+		err = fmt.Errorf("failed to Decrypt Args: %w", err)
 		return
 	}
 
 	numArgs := len(sd.UnsealedMap)
 	if numArgs < 1 {
-		err = fmt.Errorf("Failed to find EntryPoint in sealed Args")
+		err = fmt.Errorf("failed to find EntryPoint in sealed Args")
 		return
 	}
 	command, ok := sd.UnsealedMap["0"]
 	if !ok {
-		err = fmt.Errorf("Failed to find EntryPoint in location 0 of sealed args")
+		err = fmt.Errorf("failed to find EntryPoint in location 0 of sealed args")
 		return
 	}
 	argsSplits := make([]string, numArgs-1)
 	for i := 1; i < numArgs; i++ {
 		val, ok := sd.UnsealedMap[strconv.Itoa(i)]
 		if !ok {
-			err = fmt.Errorf("Wrong args structure")
+			err = fmt.Errorf("wrong args structure")
 			return
 		}
 		argsSplits[i-1] = string(val)

@@ -89,10 +89,7 @@ func (sd *SealDataMap) EncryptItem(key []byte, reference string, unsealed []byte
 	plaintext := append(unsealed, padtext...)
 	sealed = make([]byte, len(plaintext)+aes.BlockSize+len(sealedPrefixBytes))
 
-	for i, b := range sealedPrefixBytes {
-		sealed[i] = b
-	}
-
+	copy(sealed, sealedPrefixBytes)
 	iv := sealed[len(sealedPrefixBytes) : aes.BlockSize+len(sealedPrefixBytes)]
 	ciphertext := sealed[aes.BlockSize+len(sealedPrefixBytes):]
 	_, err = rand.Read(iv)
@@ -115,12 +112,12 @@ func (sd *SealDataMap) EncryptItem(key []byte, reference string, unsealed []byte
 // sealedtext - the text to unseal
 func (sd SealDataMap) DecryptItem(key []byte, reference string, sealed []byte) (unsealed []byte, err error) {
 	if !isSealed(sealed) {
-		return nil, fmt.Errorf("Not Sealed")
+		return nil, fmt.Errorf("not Sealed")
 	}
 	sealed = sealed[len(sealedPrefixBytes):]
 
 	if len(sealed) < 2*aes.BlockSize {
-		return nil, fmt.Errorf("Sealed data seems empty or corrupted")
+		return nil, fmt.Errorf("sealed data seems empty or corrupted")
 	}
 	iv := sealed[:aes.BlockSize]
 	ciphertext := sealed[aes.BlockSize:]

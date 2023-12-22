@@ -65,7 +65,7 @@ func (egg *InitEgg) SetEncPmr(symenticKey []byte, workloadName string, serviceNa
 	pmr := NewPodMessageReq(workloadName, serviceName)
 	err := pmr.Encrypt(symenticKey)
 	if err != nil {
-		return fmt.Errorf("Failed to encrypt pmr: %w", err)
+		return fmt.Errorf("failed to encrypt pmr: %w", err)
 	}
 	egg.EncPmr = pmr.Secret
 	return nil
@@ -78,7 +78,7 @@ func (egg *InitEgg) SetCert(cert []byte) {
 func (egg *InitEgg) Encode() (string, error) {
 	jegg, err := json.Marshal(egg)
 	if err != nil {
-		return "", fmt.Errorf("Failed to marshal egg: %w", err)
+		return "", fmt.Errorf("failed to marshal egg: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(jegg), nil
 }
@@ -86,11 +86,11 @@ func (egg *InitEgg) Encode() (string, error) {
 func (egg *InitEgg) Decode(eegg string) error {
 	jegg, err := base64.StdEncoding.DecodeString(eegg)
 	if err != nil {
-		return fmt.Errorf("Failed to decode base64 of egg: %w", err)
+		return fmt.Errorf("failed to decode base64 of egg: %w", err)
 	}
 	err = json.Unmarshal(jegg, egg)
 	if err != nil {
-		return fmt.Errorf("Failed to unmarshal egg: %w", err)
+		return fmt.Errorf("failed to unmarshal egg: %w", err)
 	}
 	return nil
 }

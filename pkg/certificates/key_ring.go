@@ -152,19 +152,19 @@ func (kr *KeyRing) AppendCert(cert []byte) error {
 func (kr *KeyRing) SetRotUrl(rotUrl string) error {
 	_, err := url.ParseRequestURI(rotUrl)
 	if err != nil {
-		return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
+		return fmt.Errorf("parseRequestURI Error adding ROT URL %s: %w", rotUrl, err)
 	}
 	u, err := url.Parse(rotUrl)
 	if err != nil {
-		return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
+		return fmt.Errorf("parse Error adding ROT URL %s: %w", rotUrl, err)
 	}
 	if u.Scheme != "https" {
-		return fmt.Errorf("ROT URL Scheme must be https")
+		return fmt.Errorf("rot URL Scheme must be https")
 	}
 
 	_, _, err = net.SplitHostPort(u.Host)
 	if err != nil {
-		return fmt.Errorf("Error adding ROT URL %s: %w", rotUrl, err)
+		return fmt.Errorf("splitHostPort Error adding ROT URL %s: %w", rotUrl, err)
 	}
 
 	kr.rotUrl = rotUrl
@@ -200,21 +200,21 @@ func (kr *KeyRing) Add(name string, item []byte) error {
 	if strings.HasPrefix(name, CertName) {
 		err = kr.AddCert(strings.TrimPrefix(name, CertName), item)
 		if err != nil {
-			return fmt.Errorf("Error adding cert %s: %w", name, err)
+			return fmt.Errorf("error adding cert %s: %w", name, err)
 		}
 		return nil
 	}
 	if strings.HasPrefix(name, SymetricKeyName) {
 		err = kr.AddSymetricKey(strings.TrimPrefix(name, SymetricKeyName), item)
 		if err != nil {
-			return fmt.Errorf("Error adding symetricKey %s: %w", name, err)
+			return fmt.Errorf("error adding symetricKey %s: %w", name, err)
 		}
 		return nil
 	}
 	if strings.HasPrefix(name, PrivateKeyName) {
 		err = kr.AddPrivateKey(strings.TrimPrefix(name, PrivateKeyName), item)
 		if err != nil {
-			return fmt.Errorf("Error adding privateKey %s: %w", name, err)
+			return fmt.Errorf("error adding privateKey %s: %w", name, err)
 		}
 		return nil
 	}
@@ -225,7 +225,7 @@ func (kr *KeyRing) Add(name string, item []byte) error {
 	if strings.HasPrefix(name, PeerName) {
 		err = kr.AddPeer(strings.TrimPrefix(name, PeerName), string(item))
 		if err != nil {
-			return fmt.Errorf("Error adding peer for client %s: %w", name, err)
+			return fmt.Errorf("error adding peer for client %s: %w", name, err)
 		}
 		return nil
 	}

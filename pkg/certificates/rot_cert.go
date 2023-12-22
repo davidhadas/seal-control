@@ -21,16 +21,33 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net"
+	"net/url"
+
+	"github.com/davidhadas/seal-control/pkg/log"
 )
 
 func CreateRotService() (*tls.Certificate, *x509.CertPool, error) {
-	sans := []string{"any", "rot", "rot.seal-control", "127.0.0.1"}
+	logger := log.Log
+
+	rotUrl := KubeMgr.RotCaKeyRing.RotUrl()
+	u, err := url.Parse(rotUrl)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse error adding ROT URL %s: %w", rotUrl, err)
+	}
+	h, _, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		return nil, nil, fmt.Errorf("splitHostPort error adding ROT URL %s: %w", rotUrl, err)
+	}
+	sans := []string{"any", "rot", "rot.seal-control", "127.0.0.1", h}
+
+	logger.Infof("Sans: %v\n", sans)
 
 	privateKeyBlock, certBlock, err := createPodCert(KubeMgr.RotCaKeyRing.prkPem, KubeMgr.RotCaKeyRing.certPem, "", sans...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Cannot create pod cert for rot: %w", err)
-
+		return nil, nil, fmt.Errorf("cannot create pod cert for rot: %w", err)
 	}
+
 	caArray := [][]byte{KubeMgr.RotCaKeyRing.certs[KubeMgr.RotCaKeyRing.latestCert]}
 	for index, cert := range KubeMgr.RotCaKeyRing.certs {
 		if index != KubeMgr.RotCaKeyRing.latestCert {
@@ -60,7 +77,7 @@ func CreateInit(workloadName string, serviceName string) (*InitEgg, error) {
 
 	privateKeyBlock, certBlock, err := createPodCert(KubeMgr.RotCaKeyRing.prkPem, KubeMgr.RotCaKeyRing.certPem, workloadName, sans...)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot create pod cert for init: %w", err)
+		return nil, fmt.Errorf("cannot create pod cert for init: %w", err)
 
 	}
 

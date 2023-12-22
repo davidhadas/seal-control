@@ -22,9 +22,6 @@ import (
 )
 
 func TestSealDataMap_EncryptItem_DecryptItem(t *testing.T) {
-
-	type args struct {
-	}
 	tests := []struct {
 		name           string
 		key            []byte
