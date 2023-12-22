@@ -49,12 +49,17 @@ spec:
               name: game-config           # The ConfigMap this value comes from.
               key: game.properties # The key to fetch.
         volumeMounts:
+        - name: hack-volume
+          mountPath: /hack
         - name: cm-volume
           mountPath: /sealed/cm
         - name: secret-volume
           readOnly: true
           mountPath: "/sealed/etc/secret-volume"
       volumes:
+      - name: hack-volume
+        persistentVolumeClaim:
+          claimName: silver-pvc
       - name: cm-volume
         configMap:
           name: game-config
