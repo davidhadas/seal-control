@@ -77,7 +77,7 @@ func testRot() bool {
 }
 
 func rot_client(eegg string, hostnames []string) bool {
-	protocolMessage, _, err := certificates.Rot_client(eegg, hostnames)
+	protocolMessage, err := certificates.Rot_client(eegg, hostnames)
 	if err != nil {
 		fmt.Println("Client fail to get podMassage using egg:", err)
 		return false

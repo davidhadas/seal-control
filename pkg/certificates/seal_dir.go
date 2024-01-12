@@ -17,6 +17,7 @@ limitations under the License.
 package certificates
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"io/fs"
@@ -30,9 +31,12 @@ import (
 	"github.com/davidhadas/seal-control/pkg/log"
 )
 
-func UnsealArgs(symetricKey []byte, options map[string]string) (cmd string, args []string, err error) {
-	if len(os.Args) != 2 {
+func UnsealArgs(symetricKey []byte, options map[string]string, sealRef string) (cmd string, args []string, err error) {
+	if len(os.Args) > 2 {
 		err = fmt.Errorf("wrong number of arguments - should be '<Cyphertext>'")
+		return
+	}
+	if len(os.Args) < 2 {
 		return
 	}
 	if !isSealedString(os.Args[1]) {
@@ -46,7 +50,7 @@ func UnsealArgs(symetricKey []byte, options map[string]string) (cmd string, args
 	}
 
 	sd := NewSealData()
-	err = sd.Decrypt(symetricKey, "args", sealed)
+	err = sd.Decrypt(symetricKey, "args"+sealRef, sealed)
 	if err != nil {
 		err = fmt.Errorf("failed to Decrypt Args: %w", err)
 		return
@@ -76,7 +80,7 @@ func UnsealArgs(symetricKey []byte, options map[string]string) (cmd string, args
 	return
 }
 
-func UnsealEnv(symetricKey []byte, options map[string]string) ([]string, error) {
+func UnsealEnv(symetricKey []byte, sealEnv string, options map[string]string) ([]string, error) {
 	logger := log.Log
 	logger.Infof("----------------UnsealEnv------------")
 	envExempt := options["EnvExempt"]
@@ -90,14 +94,19 @@ func UnsealEnv(symetricKey []byte, options map[string]string) ([]string, error) 
 			logger.Infof("Skip bad envrioment variable '%s'", element)
 			continue
 		}
-		if slices.Contains(exemptions, k) {
-			env = append(env, element)
+		// skip all SEAL env variables
+		if strings.HasPrefix(k, "_SEAL_") {
+			continue
+		}
+		if !isSealedString(v) {
+			if slices.Contains(exemptions, k) {
+				env = append(env, element)
+			} else {
+				logger.Infof("Skip unsealed envrioment variable '%s'", element)
+			}
 			continue
 		}
 
-		if !isSealedString(v) {
-			continue
-		}
 		sealed, err := base64.StdEncoding.DecodeString(v)
 		if err != nil {
 			continue
@@ -151,11 +160,10 @@ func UnsealDir(srcname string, dstname string, symetricKey []byte, options map[s
 }
 func UnsealFile(srcname string, fpath string, dstname string, symetricKey []byte, options map[string]string) {
 	logger := log.Log
-	logger.Debugf("UnsealFile %s", fpath)
 
 	f, err := os.Open(fpath)
 	if err != nil {
-		logger.Infof("Failed to read file %s: %v", fpath, err)
+		logger.Infof("Failed to open file '%s': %v", fpath, err)
 		return
 	}
 	defer f.Close()
@@ -163,16 +171,20 @@ func UnsealFile(srcname string, fpath string, dstname string, symetricKey []byte
 	base64sealed := make([]byte, 1e+6)
 	n, err := f.Read(base64sealed)
 	if err != nil {
-		logger.Infof("Failed to read file %s: %v", fpath, err)
+		logger.Infof("Failed to read file '%s': %v", fpath, err)
 		return
 	}
 	base64sealed = base64sealed[:n]
+	if !bytes.Equal(base64sealed[:8], []byte(sealedPrefixString)) {
+		logger.Infof("Skip unsealed data at '%s'", fpath)
+		return
+	}
 
 	// base64 decode of
 	sealed := make([]byte, base64.StdEncoding.DecodedLen(n))
 	n, err = base64.StdEncoding.Decode(sealed, base64sealed)
 	if err != nil {
-		logger.Infof("File %s has ilegal base64 : %v", fpath, err)
+		logger.Infof("File '%s' has ilegal base64 : %v", fpath, err)
 		return
 	}
 	sealed = sealed[:n]
@@ -180,7 +192,7 @@ func UnsealFile(srcname string, fpath string, dstname string, symetricKey []byte
 	sd := NewSealData()
 	unsealed, err := sd.DecryptItem(symetricKey, "", sealed)
 	if err != nil {
-		logger.Infof("Failed to Decrypt File %s: %v - %v", fpath, sealed, err)
+		logger.Infof("Failed to Decrypt File '%s': - %v", fpath, err)
 		return
 	}
 	newpath := filepath.Join(dstname, strings.TrimPrefix(fpath, srcname))

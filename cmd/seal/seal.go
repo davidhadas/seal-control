@@ -25,8 +25,6 @@ import (
 	"github.com/davidhadas/seal-control/pkg/log"
 )
 
-var helpFlag bool
-
 func main() {
 	log.InitLog("Debug")
 	var args []string
@@ -39,15 +37,20 @@ func main() {
 
 	switch args[0] {
 	case "sys", "system":
-		sys(args[1:])
+		if !sys(args[1:]) {
+			os.Exit(2)
+		}
 	case "wl", "workload":
-		wl(args[1:])
+		if !wl(args[1:]) {
+			os.Exit(2)
+		}
 	case "-h":
 		help()
 	default:
 		help()
+		os.Exit(2)
+
 	}
-	return
 }
 
 func help() {
@@ -56,6 +59,7 @@ func help() {
 	fmt.Println("  Seal sys (system)  Control the Seal system")
 	fmt.Println("  seal wl (workload) Control workloads")
 	options()
+	os.Exit(3)
 }
 
 func options() {

@@ -25,31 +25,19 @@ import (
 )
 
 type InitEgg struct {
-	RotUrl     string            `json:"rot"`
-	EncIv      []byte            `json:"iv"`
-	EncPmr     []byte            `json:"epmr"`
-	PrivateKey string            `json:"prk"`
-	Cert       string            `json:"cert"`
-	Ca         []string          `json:"ca"`
-	Options    map[string]string `json:"options"`
+	RotUrl     string   `json:"rot"`
+	EncPmr     []byte   `json:"epmr"`
+	PrivateKey string   `json:"prk"`
+	Cert       string   `json:"cert"`
+	Ca         []string `json:"ca"`
 }
 
 func NewInitEgg() *InitEgg {
-	return &InitEgg{
-		Options: make(map[string]string),
-	}
+	return &InitEgg{}
 }
 
 func (egg *InitEgg) SetTorUrl(url string) {
 	egg.RotUrl = url
-}
-
-func (egg *InitEgg) SetOption(key string, val string) {
-	egg.Options[key] = val
-}
-
-func (egg *InitEgg) GetOption(key string) string {
-	return egg.Options[key]
 }
 
 func (egg *InitEgg) AddCa(ca []byte) {
@@ -62,8 +50,11 @@ func (egg *InitEgg) SetPrivateKey(privateKey []byte) {
 }
 
 func (egg *InitEgg) SetEncPmr(symenticKey []byte, workloadName string, serviceName string) error {
-	pmr := NewPodMessageReq(workloadName, serviceName)
-	err := pmr.Encrypt(symenticKey)
+	pmr, err := NewPodMessageReq(workloadName, serviceName)
+	if err != nil {
+		return fmt.Errorf("failed to NewPodMessageReq: %w", err)
+	}
+	err = pmr.Encrypt(symenticKey)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt pmr: %w", err)
 	}

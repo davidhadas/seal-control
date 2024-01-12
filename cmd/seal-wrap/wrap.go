@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,67 +31,126 @@ import (
 // WIP
 
 func main() {
+	var devEnvFlag bool // True if we are running in development environment
+
 	log.InitLog("Debug")
 	logger := log.Log
 
 	logger.Infof("Seal wrap starting")
-	eggpath := "/egg.txt"
 
-	eegg, err := os.ReadFile(eggpath)
+	var eegg []byte
+	var err error
+	eegg, err = os.ReadFile("/egg.txt")
 	if err != nil {
-		logger.Infof("Seal wrap: Failed to get egg:", err)
-		os.Exit(1)
+		logger.Infof("Seal wrap: Failed to get egg: %s", err.Error())
+		// no egg! lets check if we are in dev environment
+		eegg, err = os.ReadFile("cmd/seal-wrap/kodata/egg.txt")
+		if err != nil {
+			logger.Infof("Seal wrap: Failed to get egg: %s", err.Error())
+			eegg, err = os.ReadFile("./kodata/egg.txt")
+		}
+		if err != nil {
+			logger.Infof("Seal wrap: Failed to get egg: %s", err.Error())
+			cwd, _ := os.Getwd()
+			logger.Infof("cwd: %s", cwd)
+			os.Exit(1)
+		}
+		devEnvFlag = true
 	}
 
 	hostnames := os.Getenv("HOSTNAMES")
 	hsplits := strings.Split(hostnames, ",")
 	for _, h := range hsplits {
 		if err := certificates.ValidateHostname(h); err != nil {
-			logger.Infof("Seal wrap: Ilegal hostname '%s': %v", h, err)
+			logger.Infof("Seal wrap: Ilegal hostname in env HOSTNAMES '%s': %v", h, err)
 			os.Exit(1)
 		}
 		logger.Infof("Seal wrap: Adding hostname '%s'", h)
 	}
 
-	podMessage, options, err := certificates.Rot_client(string(eegg), hsplits)
+	podData, err := certificates.Rot_client(string(eegg), hsplits)
 	if err != nil {
 		logger.Infof("Seal wrap: Failed to get podMassage:", err)
 		os.Exit(1)
 	}
 
-	wks, current, err := certificates.GetWKeysFromPodMessage(podMessage)
+	wks, current, err := podData.GetWKeysFromPodData()
 	if err != nil {
 		logger.Infof("Seal wrap: Failed to get workload keys:", err)
 		os.Exit(1)
 	}
 	wKey := wks[current]
 
-	err = certificates.UnsealDir("/sealed", "/unsealed", wKey, options)
+	sealRef := os.Getenv("_SEAL_REF")
+	sealConfig := os.Getenv("_SEAL_CONFIG")
+	sealEnv := os.Getenv("_SEAL_ENV")
+
+	if err != nil {
+		logger.Infof("Seal wrap: cannot find _SEAL_REF")
+		os.Exit(1)
+	}
+
+	options, err := get_config(wKey, sealRef, sealConfig)
+	if err != nil {
+		logger.Infof("Seal wrap: cannot find confiuration: %v", err)
+		os.Exit(1)
+	}
+
+	logger.Infof("Seal wrap cofig: %v", options)
+
+	if err := check_mounts(devEnvFlag, options); err != nil {
+		logger.Infof("Seal wrap: Ilegal mounts: %v", err)
+		os.Exit(1)
+	}
+
+	err = certificates.UnsealDir("/run/seal/", "/", wKey, options)
 	if err != nil {
 		logger.Infof("failed to UnsealDir: %v", err)
 		return
 	}
 
-	env, err := certificates.UnsealEnv(wKey, options)
+	env, err := certificates.UnsealEnv(wKey, sealEnv, options)
 	if err != nil {
 		logger.Infof("failed to UnsealEnv: %v", err)
 		return
 	}
 
-	cmd, args, err := certificates.UnsealArgs(wKey, options)
+	cmd, args, err := certificates.UnsealArgs(wKey, options, sealRef)
 	if err != nil {
 		logger.Infof("failed to UnsealArgs: %v", err)
 		return
 	}
-	logger.Infof("Starting process %s %s", cmd, strings.Join(args, " "))
-	for _, str := range env {
-		logger.Debugf("\t%s", str)
+	if cmd == "" {
+		logger.Infoln("UnsealArgs  - no CMD or ARGS found")
+	} else {
+		logger.Infof("Starting process '%s %s'", cmd, strings.Join(args, " "))
+		for _, str := range env {
+			logger.Debugf("\t%s", str)
+		}
+		go startProcess(cmd, args, env)
 	}
-	go startProcess(cmd, args, env)
 	for {
-		time.Sleep(10 * time.Second)
 		fmt.Println("Tick")
+		time.Sleep(10 * time.Second)
 	}
+}
+
+func get_config(wKey []byte, sealRef string, sealConfigStr string) (map[string]string, error) {
+	sealed, err := base64.StdEncoding.DecodeString(sealConfigStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode - should be Base64 '%s' - err %v", os.Args[0], err)
+	}
+	sdAnnotation := certificates.NewSealData()
+	err = sdAnnotation.Decrypt(wKey, sealRef, sealed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to Decrypt Seal Config: %w", err)
+	}
+	options := make(map[string]string)
+	for k, v := range sdAnnotation.UnsealedMap {
+		options[k] = string(v)
+	}
+
+	return options, nil
 }
 
 func startProcess(cmd string, args []string, env []string) {

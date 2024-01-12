@@ -26,21 +26,21 @@ import (
 	"github.com/davidhadas/seal-control/pkg/log"
 )
 
-func Rot_client(eegg string, hostnames []string) (*PodMessage, map[string]string, error) {
+func Rot_client(eegg string, hostnames []string) (*PodData, error) {
 	logger := log.Log
 
 	e := NewInitEgg()
 	err := e.Decode(eegg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to decodeegg: %w", err)
+		return nil, fmt.Errorf("failed to decodeegg: %w", err)
 	}
 	ccert, err := e.GetCert()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get cert from egg: %w", err)
+		return nil, fmt.Errorf("failed to get cert from egg: %w", err)
 	}
 	ccaPool, err := e.GetCaPool()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get cert from egg: %w", err)
+		return nil, fmt.Errorf("failed to get cert from egg: %w", err)
 	}
 	mtc := &MutualTls{
 		Cert:   ccert,
@@ -49,18 +49,21 @@ func Rot_client(eegg string, hostnames []string) (*PodMessage, map[string]string
 	mtc.AddPeer("rot")
 
 	client := mtc.Client()
-	pmr := NewPodMessageReq("", "")
+	pmr, err := NewPodMessageReq("", "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to NewPodMessageReq: %w", err)
+	}
 	pmr.Secret = e.EncPmr
 	pmr.Hostnames = hostnames
 	jpmr, err := json.Marshal(pmr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error marshal pod message request: %w", err)
+		return nil, fmt.Errorf("error marshal pod message request: %w", err)
 	}
 	logger.Infof("Approaching ROT at: %s", e.RotUrl)
 	// Create an HTTP request with custom headers
 	req, err := http.NewRequest("POST", e.RotUrl, bytes.NewBuffer(jpmr))
 	if err != nil {
-		return nil, nil, fmt.Errorf("error creating HTTP request: %w", err)
+		return nil, fmt.Errorf("error creating HTTP request: %w", err)
 	}
 	req.Header.Add("Content-Type", "application/json")
 
@@ -68,21 +71,22 @@ func Rot_client(eegg string, hostnames []string) (*PodMessage, map[string]string
 	logger.Debugf("found egg, approching Rot")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error sending HTTP request: %w", err)
+		return nil, fmt.Errorf("error sending HTTP request: %w", err)
 	}
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading HTTP response body: %w", err)
+		return nil, fmt.Errorf("error reading HTTP response body: %w", err)
 	}
 	var podMessage PodMessage
 	err = json.Unmarshal(body, &podMessage)
 	if err != nil {
 		fmt.Printf("body: %s", string(body))
-		return nil, nil, fmt.Errorf("failed to unmarshal body: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal body: %w", err)
 	}
-	return &podMessage, e.Options, nil
+	podData := NewPodData(pmr, &podMessage)
+	return podData, nil
 }
 
 func Rot_service(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +132,6 @@ func Rot_service(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
 	podMessage, err := CreatePodMessage(&pmr)
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %", err)

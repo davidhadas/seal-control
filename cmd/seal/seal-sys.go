@@ -20,64 +20,69 @@ import (
 	"fmt"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-func sys(args []string) {
-	err := certificates.InitKubeMgr()
+func sys(args []string) bool {
+	err := certificates.InitRotKubeMgr()
 	if err != nil {
 		fmt.Printf("Failed to access local kubernetes cluster: %v\n", err)
-		return
+		return false
 	}
 
 	if len(args) == 0 {
 		err = certificates.LoadRotCa()
 		if err != nil {
-			fmt.Printf("Failed to load ROT CA: %v\n", err)
-			fmt.Printf("Initialize ROT CA using\n\t`sys init <ROT-URL>`\n")
-			return
+			if apierrors.IsNotFound(err) {
+				fmt.Printf("Failed to load ROT CA: %v\n", err)
+				fmt.Printf("** Verify that kubectl points to the ROT cluster ** \n")
+				fmt.Printf("   Initialize ROT CA using\n\t`sys init <ROT-URL>`\n")
+				return false
+			}
+			fmt.Printf("Cant access ROT CA: %v\n", err)
+			return false
 		}
 		fmt.Println("Seal system:")
 		fmt.Printf("  RotUrl:       %s\n", certificates.KubeMgr.RotCaKeyRing.RotUrl())
 		fmt.Printf("  Certs:        %d\n", certificates.KubeMgr.RotCaKeyRing.NumCerts())
 		fmt.Printf("  PrivateKeys:  %d\n", certificates.KubeMgr.RotCaKeyRing.NumPrivateKeys())
 		fmt.Printf("  SymetricKeys: %d\n", certificates.KubeMgr.RotCaKeyRing.NumSymetricKeys())
-		return
+		return false
 	}
 	switch args[0] {
 	case "del", "delete":
-		sys_del(args[1:])
+		return sys_del(args[1:])
 	case "init":
-		sys_init(args[1:])
+		return sys_init(args[1:])
 	case "url":
-		sys_url(args[1:])
+		return sys_url(args[1:])
 	default:
 		sys_help()
+		return false
 	}
-	return
-
 }
 
-func sys_init(args []string) {
+func sys_init(args []string) bool {
 	if len(args) != 1 {
 		sys_help()
-		return
+		return false
 	}
 	if args[0] == "-h" {
 		sys_help()
-		return
+		return true
 	}
 	rotUrl := args[0]
 
 	if !certificates.CANotFound("") {
 		fmt.Printf("Delete ROT CA first\n\t`sys del`\n")
-		return
+		return false
 	}
 	fmt.Printf("Initializing ROT CA Secret with URL %s\n", rotUrl)
 
 	keyRing, err := certificates.CreateNewCA("", rotUrl)
 	if err != nil {
 		fmt.Printf("Failed to create a new ROT CA: %v\n", err)
-		return
+		return false
 	}
 	certificates.KubeMgr.RotCaKeyRing = keyRing
 	fmt.Println("Seal system:")
@@ -85,46 +90,54 @@ func sys_init(args []string) {
 	fmt.Printf("  Certs:        %d\n", certificates.KubeMgr.RotCaKeyRing.NumCerts())
 	fmt.Printf("  PrivateKeys:  %d\n", certificates.KubeMgr.RotCaKeyRing.NumPrivateKeys())
 	fmt.Printf("  SymetricKeys: %d\n", certificates.KubeMgr.RotCaKeyRing.NumSymetricKeys())
+	return true
 }
 
-func sys_url(args []string) {
+func sys_url(args []string) bool {
 	if len(args) != 1 {
 		sys_help()
-		return
+		return false
 	}
 	if args[0] == "-h" {
 		sys_help()
-		return
+		return true
 	}
 	rotUrl := args[0]
 
 	err := certificates.LoadRotCa()
 	if err != nil {
-		fmt.Printf("Failed to load ROT CA: %v\n", err)
-		fmt.Printf("Initialize ROT CA using\n\t`sys init <ROT-URL>`\n")
-		return
+		if apierrors.IsNotFound(err) {
+			fmt.Printf("Failed to load ROT CA: %v\n", err)
+			fmt.Printf("** Verify that kubectl points to the ROT cluster ** \n")
+			fmt.Printf("   Initialize ROT CA using\n\t`sys init <ROT-URL>`\n")
+			return false
+		}
+		fmt.Printf("Cant access ROT CA: %v\n", err)
+		return false
 	}
 
 	err = certificates.KubeMgr.RotCaKeyRing.SetRotUrl(rotUrl)
 	if err != nil {
 		fmt.Printf("%v", err)
-		return
+		return false
 	}
 	err = certificates.UpdateCA("", certificates.KubeMgr.RotCaKeyRing)
 	if err != nil {
 		fmt.Printf("Failed to update ROT CA: %v\n", err)
+		return false
 	}
+	return true
 }
 
-func sys_del(args []string) {
+func sys_del(args []string) bool {
 	if len(args) != 0 {
 		sys_help()
-		return
+		return false
 	}
 
 	if certificates.CANotFound("") {
 		fmt.Printf("ROT CA does not exist\n")
-		return
+		return false
 	}
 	fmt.Printf("\t******************\n")
 	fmt.Printf("\t*** WARNING!!! ***\n")
@@ -135,7 +148,7 @@ func sys_del(args []string) {
 	cas, err := certificates.KubeMgr.ListCas()
 	if err != nil {
 		fmt.Printf("Failed to list workload secrets: %v\n", err)
-		return
+		return false
 	}
 	for _, ca := range cas {
 		fmt.Printf("\tDeleting workload  `%s`\n", ca)
@@ -149,6 +162,7 @@ func sys_del(args []string) {
 		}
 		certificates.KubeMgr.DeleteCa("")
 	}
+	return true
 }
 
 // https://192.168.68.102:8443/rot

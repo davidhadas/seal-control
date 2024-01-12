@@ -115,32 +115,40 @@ func (sd SealDataMap) DecryptItem(key []byte, reference string, sealed []byte) (
 		return nil, fmt.Errorf("not Sealed")
 	}
 	sealed = sealed[len(sealedPrefixBytes):]
-
-	if len(sealed) < 2*aes.BlockSize {
-		return nil, fmt.Errorf("sealed data seems empty or corrupted")
+	l_sealed := len(sealed)
+	if l_sealed < 2*aes.BlockSize {
+		return nil, fmt.Errorf("sealed data too short")
+	}
+	if l_sealed%aes.BlockSize != 0 {
+		return nil, fmt.Errorf("sealed data wrong size")
 	}
 	iv := sealed[:aes.BlockSize]
 	ciphertext := sealed[aes.BlockSize:]
 	plaintext := make([]byte, len(ciphertext))
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("fail to create a cipher: %w", err)
+		return nil, fmt.Errorf("fail to create an aes cipher using key: %w", err)
 	}
 
 	mode := cipher.NewCBCDecrypter(block, iv)
 	mode.CryptBlocks(plaintext, ciphertext)
+	// at this point we have no idea if the key used is legit
+	// hence we do not know if plaintext is legit
+	// we do know len(plaintext) = (n * aes.BlockSize), n= 1,2,3..
 	l_plaintext := len(plaintext)
-	padding := plaintext[l_plaintext-1]
-	checksum := plaintext[l_plaintext-int(padding)-4 : l_plaintext-int(padding)]
-	unsealed = plaintext[:l_plaintext-int(padding)-4]
+	padding := int(plaintext[l_plaintext-1])
+	if padding < 1 || padding > aes.BlockSize || l_plaintext-padding-4 < 0 {
+		return nil, fmt.Errorf("ilegal padding - wrong key used?")
+	}
+	checksum := plaintext[l_plaintext-padding-4 : l_plaintext-padding]
+	unsealed = plaintext[:l_plaintext-padding-4]
 
 	ref := adler32.New()
 	ref.Write([]byte(reference))
 	ref_checksum := ref.Sum(nil)
 	if !bytes.Equal(checksum, ref_checksum) {
-		return nil, fmt.Errorf("checksum failed - wrong reference %s", reference)
+		return nil, fmt.Errorf("checksum failed - wrong reference '%s' or wrong key used", reference)
 	}
-
 	return unsealed, nil
 }
 
@@ -188,7 +196,7 @@ func (sd SealDataMap) Decrypt(key []byte, reference string, sealedtext []byte) e
 
 	unsealed, err := sd.DecryptItem(key, reference, sealedtext)
 	if err != nil {
-		return fmt.Errorf("fail to Decrypt: %w", err)
+		return err
 	}
 	err = json.Unmarshal(unsealed, &sd.UnsealedMap)
 	if err != nil {

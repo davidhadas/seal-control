@@ -47,18 +47,18 @@ func main() {
 	}
 
 	eggpath := os.Getenv("KO_DATA_PATH")
-	podmessagepath := "/seal/podMessage"
+	poddatapath := "/seal/podData"
 	if eggpath == "" {
-		podmessagepath = "/tmp/podMessage"
+		poddatapath = "/tmp/podData"
 	}
 
-	var podMessage certificates.PodMessage
-	bytes, err := os.ReadFile(podmessagepath)
+	var podData certificates.PodData
+	bytes, err := os.ReadFile(poddatapath)
 	if err != nil {
 		logger.Infof("fail to read a file: %v", err)
 		return
 	}
-	err = json.Unmarshal(bytes, &podMessage)
+	err = json.Unmarshal(bytes, &podData)
 	if err != nil {
 		logger.Infof("failed to unmarshal body: %v", err)
 		return
@@ -66,14 +66,18 @@ func main() {
 	// Print the response body
 	logger.Infof("podMessage OK")
 
-	cert, caPool, err := certificates.GetTlsFromPodMessage(&podMessage)
+	cert, caPool, err := podData.GetTlsFromPodMessage()
+	if err != nil {
+		logger.Infof("failed to GetTlsFromPodMessage: %v", err)
+		return
+	}
 
 	mtc := &certificates.MutualTls{
 		Cert:   cert,
 		CaPool: caPool,
 	}
-	mtc.AddPeer(podMessage.Name)
-	for _, server := range podMessage.Servers {
+	mtc.AddPeer(podData.ServiceName)
+	for _, server := range podData.Servers {
 		mtc.AddPeer(server)
 	}
 	client(mtc, url)

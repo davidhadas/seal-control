@@ -21,8 +21,10 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -39,15 +41,44 @@ type PodMessageReqSecret struct {
 
 type PodMessageReq struct {
 	secret    PodMessageReqSecret // Unencrypted Secret
+	privKey   string              // private key
 	Secret    []byte              // Encrypted Secret
 	Hostnames []string            // more names requested for the certificate
+	Csr       []byte              // Certificate request
 }
 
-func NewPodMessageReq(workloadName string, serviceName string) *PodMessageReq {
+func NewPodMessageReq(workloadName string, serviceName string) (*PodMessageReq, error) {
 	pmr := &PodMessageReq{}
 	pmr.secret.ServiceName = serviceName
 	pmr.secret.WorkloadName = workloadName
-	return pmr
+	keyPair, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("failed to rsa.GenerateKey %w", err)
+	}
+	privateKeyBlock := &pem.Block{
+		Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(keyPair),
+	}
+	privateKeyPem := pem.EncodeToMemory(privateKeyBlock)
+	pmr.privKey = string(privateKeyPem)
+	org := "research.ibm.com"
+	cn := workloadName + "." + org
+
+	csrTemplate := x509.CertificateRequest{
+		Subject: pkix.Name{
+			Organization: []string{org},
+			CommonName:   cn,
+		},
+	}
+	sans := []string{"any", strings.ToLower(serviceName)}
+	sans = append(sans, pmr.Hostnames...)
+	csrTemplate.DNSNames = sans
+
+	pmr.Csr, err = x509.CreateCertificateRequest(rand.Reader, &csrTemplate, keyPair)
+	if err != nil {
+		return nil, fmt.Errorf("failed to x509.CreateCertificateRequest %w", err)
+	}
+
+	return pmr, nil
 }
 
 func (pmr *PodMessageReq) Encrypt(key []byte) error {
@@ -155,41 +186,39 @@ func (pmr *PodMessageReq) Validate() error {
 	return nil
 }
 
-type PodMessage struct {
-	Name        string         `json:"name"`
-	Clients     []string       `json:"clients"`
-	Servers     []string       `json:"servers"`
-	CurrentWKey int            `json:"current"`
-	WorkloadKey map[int]string `json:"key"`
-	PrivateKey  string         `json:"prk"`
-	Cert        string         `json:"cert"`
-	Ca          []string       `json:"ca"`
+type PodData struct {
+	ServiceName  string         `json:"servicename"`
+	WorkloadName string         `json:"workloadname"`
+	Clients      []string       `json:"clients"`
+	Servers      []string       `json:"servers"`
+	CurrentWKey  int            `json:"current"`
+	WorkloadKey  map[int]string `json:"key"`
+	PrivateKey   string         `json:"prk"`
+	Cert         string         `json:"cert"`
+	Ca           []string       `json:"ca"`
 }
 
-func NewPodMessage(name string) *PodMessage {
-	return &PodMessage{
-		Name:        name,
-		WorkloadKey: make(map[int]string, 0),
-		Ca:          make([]string, 0),
-		CurrentWKey: -1,
+func NewPodData(pmr *PodMessageReq, pm *PodMessage) *PodData {
+	return &PodData{
+		ServiceName:  pmr.secret.ServiceName,
+		WorkloadName: pmr.secret.WorkloadName,
+		PrivateKey:   pmr.privKey,
+		Clients:      pm.Clients,
+		Servers:      pm.Servers,
+		Ca:           pm.Ca,
+		CurrentWKey:  pm.CurrentWKey,
+		WorkloadKey:  pm.WorkloadKey,
+		Cert:         pm.Cert,
 	}
 }
 
-func (pm *PodMessage) GetCertPem() (cert []byte, prk []byte, err error) {
-	cert, err = base64.StdEncoding.DecodeString(pm.Cert)
-	if err != nil {
-		return nil, nil, fmt.Errorf("cant decode cert: %w", err)
-	}
-	prk, err = base64.StdEncoding.DecodeString(pm.PrivateKey)
-	if err != nil {
-		return nil, nil, fmt.Errorf("cant decode privateKey: %w", err)
-	}
-	return
+func (pd *PodData) GetPrivateKeyPem() string {
+	return pd.PrivateKey
 }
 
-func (pm *PodMessage) GetCaPem() ([]byte, error) {
+func (pd *PodData) GetCaPem() ([]byte, error) {
 	var caPem []byte
-	for _, caString := range pm.Ca {
+	for _, caString := range pd.Ca {
 		ca, err := base64.StdEncoding.DecodeString(caString)
 		if err != nil {
 			return nil, fmt.Errorf("cant decode ca: %w", err)
@@ -199,29 +228,25 @@ func (pm *PodMessage) GetCaPem() ([]byte, error) {
 	return caPem, nil
 }
 
-func (pm *PodMessage) GetWorkloadKey() (map[int][]byte, int, error) {
+func (pd *PodData) GetWorkloadKey() (map[int][]byte, int, error) {
 	WkeyMap := make(map[int][]byte, 1)
-	for index, base64WK := range pm.WorkloadKey {
+	for index, base64WK := range pd.WorkloadKey {
 		byteArray, err := base64.StdEncoding.DecodeString(base64WK)
 		if err != nil {
 			return nil, -1, err
 		}
 		WkeyMap[index] = byteArray
 	}
-	return WkeyMap, pm.CurrentWKey, nil
+	return WkeyMap, pd.CurrentWKey, nil
 }
 
-func (pm *PodMessage) GetPrivateKey() ([]byte, error) {
-	return base64.StdEncoding.DecodeString(pm.PrivateKey)
+func (pd *PodData) GetCert() ([]byte, error) {
+	return base64.StdEncoding.DecodeString(pd.Cert)
 }
 
-func (pm *PodMessage) GetCert() ([]byte, error) {
-	return base64.StdEncoding.DecodeString(pm.Cert)
-}
-
-func (pm *PodMessage) GetCas() ([][]byte, error) {
+func (pd *PodData) GetCas() ([][]byte, error) {
 	byteArrays := make([][]byte, 1)
-	for _, base64Ca := range pm.Ca {
+	for _, base64Ca := range pd.Ca {
 		byteArray, err := base64.StdEncoding.DecodeString(base64Ca)
 		if err != nil {
 			return nil, err
@@ -231,12 +256,31 @@ func (pm *PodMessage) GetCas() ([][]byte, error) {
 	return byteArrays, nil
 }
 
-func (pm *PodMessage) GetClients() []string {
-	return pm.Clients
+func (pd *PodData) GetClients() []string {
+	return pd.Clients
 }
 
-func (pm *PodMessage) GetServers() []string {
-	return pm.Servers
+func (pd *PodData) GetServers() []string {
+	return pd.Servers
+}
+
+type PodMessage struct {
+	//Name        string         `json:"name"`
+	Clients     []string       `json:"clients"`
+	Servers     []string       `json:"servers"`
+	CurrentWKey int            `json:"current"`
+	WorkloadKey map[int]string `json:"key"`
+	//PrivateKey  string         `json:"prk"`
+	Cert string   `json:"cert"`
+	Ca   []string `json:"ca"`
+}
+
+func NewPodMessage() *PodMessage {
+	return &PodMessage{
+		WorkloadKey: make(map[int]string, 0),
+		Ca:          make([]string, 0),
+		CurrentWKey: -1,
+	}
 }
 
 func (pm *PodMessage) SetWorkloadKey(symetricKey []byte, index int) error {
@@ -264,9 +308,9 @@ func (pm *PodMessage) SetWorkloadKey(symetricKey []byte, index int) error {
 	return nil
 }
 
-func (pm *PodMessage) SetPrivateKey(privateKey []byte) {
-	pm.PrivateKey = base64.StdEncoding.EncodeToString(privateKey)
-}
+//func (pm *PodMessage) SetPrivateKey(privateKey []byte) {
+//	pm.PrivateKey = base64.StdEncoding.EncodeToString(privateKey)
+//}
 
 func (pm *PodMessage) SetCert(cert []byte) {
 	pm.Cert = base64.StdEncoding.EncodeToString(cert)
@@ -291,15 +335,12 @@ func CreatePodMessage(pmr *PodMessageReq) (*PodMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get a CA %s: %v", workload, err)
 	}
-	//sans := []string{"any", strings.ToLower(pmr.PodName), "myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"}
-	sans := []string{"any", strings.ToLower(servicename)}
-	sans = append(sans, pmr.Hostnames...)
 
-	privateKeyBlock, certBlock, err := createPodCert(workloadCaKeyRing.prkPem, workloadCaKeyRing.certPem, workload, sans...)
+	certBlock, err := createPodCertFromCsr(workloadCaKeyRing.prk, workloadCaKeyRing.cert, workload, pmr.Csr)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create pod cert for pod %s: %w", servicename, err)
 	}
-	podMessage := NewPodMessage(servicename)
+	podMessage := NewPodMessage()
 
 	podMessage.SetCa(workloadCaKeyRing.certs[workloadCaKeyRing.latestCert])
 	for index, cert := range workloadCaKeyRing.certs {
@@ -308,7 +349,6 @@ func CreatePodMessage(pmr *PodMessageReq) (*PodMessage, error) {
 		}
 	}
 	podMessage.SetCert(pem.EncodeToMemory(certBlock))
-	podMessage.SetPrivateKey(pem.EncodeToMemory(privateKeyBlock))
 	err = podMessage.SetWorkloadKey(workloadCaKeyRing.sKeys[workloadCaKeyRing.latestSKey], workloadCaKeyRing.latestSKey)
 	if err != nil {
 		return nil, fmt.Errorf("cannot set workload key for pod %s: %w", servicename, err)
@@ -344,37 +384,95 @@ func CreatePodMessage(pmr *PodMessageReq) (*PodMessage, error) {
 	return podMessage, nil
 }
 
-func GetTlsFromPodMessage(podMessage *PodMessage) (*tls.Certificate, *x509.CertPool, error) {
+/*
+	func CreatePodMessage2(pmr *PodMessageReq) (*PodMessage, error) {
+		workload := pmr.secret.WorkloadName
+		servicename := pmr.secret.ServiceName
+		workloadCaKeyRing, err := GetCA(workload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get a CA %s: %v", workload, err)
+		}
+		//sans := []string{"any", strings.ToLower(pmr.PodName), "myapp-default.myos-e621c7d733ece1fad737ff54a8912822-0000.us-south.containers.appdomain.cloud"}
+		sans := []string{"any", strings.ToLower(servicename)}
+		sans = append(sans, pmr.Hostnames...)
+
+		privateKeyBlock, certBlock, err := createPodCert(workloadCaKeyRing.prkPem, workloadCaKeyRing.certPem, workload, sans...)
+		if err != nil {
+			return nil, fmt.Errorf("cannot create pod cert for pod %s: %w", servicename, err)
+		}
+		podMessage := NewPodMessage(servicename)
+
+		podMessage.SetCa(workloadCaKeyRing.certs[workloadCaKeyRing.latestCert])
+		for index, cert := range workloadCaKeyRing.certs {
+			if index != workloadCaKeyRing.latestCert {
+				podMessage.SetCa(cert)
+			}
+		}
+		podMessage.SetCert(pem.EncodeToMemory(certBlock))
+		podMessage.SetPrivateKey(pem.EncodeToMemory(privateKeyBlock))
+		err = podMessage.SetWorkloadKey(workloadCaKeyRing.sKeys[workloadCaKeyRing.latestSKey], workloadCaKeyRing.latestSKey)
+		if err != nil {
+			return nil, fmt.Errorf("cannot set workload key for pod %s: %w", servicename, err)
+		}
+		for index, cert := range workloadCaKeyRing.sKeys {
+			if index != workloadCaKeyRing.latestSKey {
+				if err != nil {
+					return nil, fmt.Errorf("cannot decode string workload key for pod %s: %w", servicename, err)
+				}
+				err = podMessage.SetWorkloadKey(cert, index)
+				if err != nil {
+					return nil, fmt.Errorf("cannot set workload key for pod %s: %w", servicename, err)
+				}
+			}
+		}
+		podMessage.AddClient(servicename)
+		podMessage.AddServer(servicename)
+		for client, servers := range workloadCaKeyRing.peers {
+			serverSlice := strings.Split(servers, ",")
+			if client == servicename {
+				for _, server := range serverSlice {
+					podMessage.AddServer(server)
+				}
+			} else {
+				for _, server := range serverSlice {
+					if server == servicename {
+						podMessage.AddServer(client)
+					}
+				}
+			}
+		}
+
+		return podMessage, nil
+	}
+*/
+func (pd *PodData) GetTlsFromPodMessage() (*tls.Certificate, *x509.CertPool, error) {
 	//caCertPool := NewCertPool()
 	caCertPool, err := x509.SystemCertPool()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to obtain SystemCertPool: %w", err)
 	}
-	for _, caString := range podMessage.Ca {
+	for _, caString := range pd.Ca {
 		ca, err := base64.StdEncoding.DecodeString(caString)
 		if err != nil {
 			return nil, nil, fmt.Errorf("cant decode ca: %w", err)
 		}
 		caCertPool.AppendCertsFromPEM(ca)
 	}
-	cert, err := base64.StdEncoding.DecodeString(podMessage.Cert)
+	cert, err := base64.StdEncoding.DecodeString(pd.Cert)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cant decode cert: %w", err)
 	}
-	prk, err := base64.StdEncoding.DecodeString(podMessage.PrivateKey)
-	if err != nil {
-		return nil, nil, fmt.Errorf("cant decode privateKey: %w", err)
-	}
+	pkeyPem := pd.GetPrivateKeyPem()
 
-	certificate, err := tls.X509KeyPair(cert, prk)
+	certificate, err := tls.X509KeyPair(cert, []byte(pkeyPem))
 	if err != nil {
 		return nil, nil, fmt.Errorf("tls.X509KeyPair failed: %w", err)
 	}
 	return &certificate, caCertPool, nil
 }
 
-func GetWKeysFromPodMessage(podMessage *PodMessage) (map[int][]byte, int, error) {
-	wks, current, err := podMessage.GetWorkloadKey()
+func (pd *PodData) GetWKeysFromPodData() (map[int][]byte, int, error) {
+	wks, current, err := pd.GetWorkloadKey()
 	if err != nil {
 		return nil, -1, fmt.Errorf("failed getting workload keys: %w", err)
 	}

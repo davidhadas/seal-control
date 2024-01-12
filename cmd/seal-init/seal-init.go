@@ -57,12 +57,12 @@ func main() {
 		}
 	}
 
-	protocolMessage, options, err := certificates.Rot_client(string(eegg), hsplits)
+	podData, err := certificates.Rot_client(string(eegg), hsplits)
 	if err != nil {
 		logger.Infof("Client fail to get podMassage using egg:", err)
 		os.Exit(1)
 	}
-	jPM, err := json.Marshal(protocolMessage)
+	jPM, err := json.Marshal(podData)
 	if err != nil {
 		logger.Infof("Fail to marshal egg:", err)
 		os.Exit(1)
@@ -73,12 +73,12 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Infof("Created %s", podmessagepath)
-	wks, current, err := certificates.GetWKeysFromPodMessage(protocolMessage)
+	wks, current, err := podData.GetWKeysFromPodData()
 	if err != nil {
 		logger.Infof("Fail to get workload keys:", err)
 		os.Exit(1)
 	}
 	symetricKey := wks[current]
-	certificates.UnsealDir("/mnt", "/seal", symetricKey, options)
+	certificates.UnsealDir("/mnt", "/seal", symetricKey, map[string]string{})
 	logger.Infof("Seal init terminating")
 }

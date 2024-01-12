@@ -23,6 +23,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"net"
+	"time"
 )
 
 // Create cert template that we can use on the client/server for TLS
@@ -78,4 +80,46 @@ func createPodCert(caKey *rsa.PrivateKey, caCertificate *x509.Certificate, workl
 		return nil, nil, fmt.Errorf("failed to parse private key: %w", err)
 	}
 	return privateKeyBlock, certBlock, nil
+}
+
+// createPodCert generates the certificate for use by client and server
+func createPodCertFromCsr(caKey *rsa.PrivateKey, caCertificate *x509.Certificate, workloadName string, csr []byte) (*pem.Block, error) {
+	// Then create the private key for the serving cert
+	serialNumber, err := rand.Int(randReader, serialNumberLimit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate serial number: %w", err)
+	}
+
+	clientCSR, err := x509.ParseCertificateRequest(csr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ParseCertificateRequest: %w", err)
+	}
+	if err = clientCSR.CheckSignature(); err != nil {
+		return nil, fmt.Errorf("failed to CheckSignature: %w", err)
+	}
+
+	certTemplate := &x509.Certificate{
+		SerialNumber:          serialNumber,
+		SignatureAlgorithm:    x509.SHA256WithRSA,
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(certExpirationInterval),
+		BasicConstraintsValid: true,
+		DNSNames:              clientCSR.DNSNames,
+		IPAddresses:           []net.IP{net.IPv4(127, 0, 0, 1)},
+		Subject:               clientCSR.Subject,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+	}
+
+	// create a certificate which wraps the public key, sign it with the CA private key
+	_, certBlock, err := createCert(certTemplate, caCertificate, clientCSR.PublicKey, caKey)
+	if err != nil {
+		return nil, fmt.Errorf("error signing certificate template: %w", err)
+	}
+	_, err = x509.ParseCertificate(certBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	return certBlock, nil
 }

@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
+
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	"github.com/davidhadas/seal-control/pkg/log"
 )
@@ -25,9 +27,12 @@ func testPmr() bool {
 	logger := log.Log
 	logger.Infof("--------> Starting testPmr")
 
-	pmr := certificates.NewPodMessageReq("my-workload", "my-pod")
-
-	err := pmr.Encrypt([]byte("abcdef0123456789"))
+	pmr, err := certificates.NewPodMessageReq("my-workload", "my-pod")
+	if err != nil {
+		fmt.Printf("Failed to create PodMessageReq: %v\n", err)
+		return false
+	}
+	err = pmr.Encrypt([]byte("abcdef0123456789"))
 	if err != nil {
 		logger.Infof("Failed Encrypt PMR: %v", err)
 		return false

@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	acorev1 "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -42,9 +41,24 @@ const (
 )
 
 type KubeMgrStruct struct {
-	client            *kubernetes.Clientset
+	rotClient         *kubernetes.Clientset
 	sealCtrlNamespace string
 	RotCaKeyRing      *KeyRing
+}
+
+type KubeMgrError struct {
+	Value       int
+	Description string
+}
+
+const (
+	KmeUnknown      = 0
+	KmeUnauthorized = 1
+	KmeNoAccess     = 2
+)
+
+func (kme *KubeMgrError) Error() string {
+	return fmt.Sprintf("value error: %s", kme.Description)
 }
 
 func LoadRotCa() error {
@@ -53,7 +67,7 @@ func LoadRotCa() error {
 	return err
 }
 
-func InitKubeMgr() error {
+func InitRotKubeMgr() error {
 	var err error
 	KubeMgr = &KubeMgrStruct{
 		sealCtrlNamespace: sealCtrlNamespace,
@@ -79,11 +93,33 @@ func InitKubeMgr() error {
 	}
 
 	// Create a secrets client
-	KubeMgr.client, err = kubernetes.NewForConfig(kubeCfg)
+	KubeMgr.rotClient, err = kubernetes.NewForConfig(kubeCfg)
 	if err != nil {
 		return fmt.Errorf("failed to configure KubeApi using config: %w", err)
 	}
 	return nil
+}
+
+func InitRemoteKubeMgr(contextName string) (*kubernetes.Clientset, error) {
+	var err error
+	var kubeCfg *rest.Config
+
+	loader := clientcmd.NewDefaultClientConfigLoadingRules()
+	overrides := &clientcmd.ConfigOverrides{
+		CurrentContext: contextName,
+	}
+	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, overrides)
+	kubeCfg, err = clientConfig.ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get complete client config for context %s: %w", contextName, err)
+	}
+
+	// Create a secrets client
+	client, err := kubernetes.NewForConfig(kubeCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure KubeApi using config for context %s: %w", contextName, err)
+	}
+	return client, nil
 }
 
 func (kubeMgr *KubeMgrStruct) GetCa(workloadName string) (*corev1.Secret, error) {
@@ -95,7 +131,7 @@ func (kubeMgr *KubeMgrStruct) GetCa(workloadName string) (*corev1.Secret, error)
 	if len(workloadName) > 63 {
 		return nil, errors.New("workloadName too long")
 	}
-	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
+	secrets := kubeMgr.rotClient.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	return secrets.Get(context.Background(), workloadName, metav1.GetOptions{})
 }
 
@@ -105,7 +141,7 @@ func (kubeMgr *KubeMgrStruct) DeleteCa(workloadName string) error {
 	if err != nil {
 		return fmt.Errorf("cant Delete CA: %w ", err)
 	}
-	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
+	secrets := kubeMgr.rotClient.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	secrets.Delete(context.Background(), workloadName, metav1.DeleteOptions{})
 	return nil
 }
@@ -116,7 +152,7 @@ func (kubeMgr *KubeMgrStruct) CreateCa(workloadName string) (*corev1.Secret, err
 	if err != nil {
 		return nil, fmt.Errorf("cant Delete CA: %w ", err)
 	}
-	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
+	secrets := kubeMgr.rotClient.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	s := corev1.Secret{}
 	s.Name = workloadName
 	s.Namespace = kubeMgr.sealCtrlNamespace
@@ -125,20 +161,22 @@ func (kubeMgr *KubeMgrStruct) CreateCa(workloadName string) (*corev1.Secret, err
 }
 
 func (kubeMgr *KubeMgrStruct) UpdateCA(secret *corev1.Secret) (*corev1.Secret, error) {
-	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
+	secrets := kubeMgr.rotClient.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	return secrets.Update(context.Background(), secret, metav1.UpdateOptions{})
 }
 
+/*
 func (kubeMgr *KubeMgrStruct) ApplySecret(secret *acorev1.SecretApplyConfiguration) (*corev1.Secret, error) {
-	secrets := kubeMgr.client.CoreV1().Secrets(*secret.Namespace)
+	secrets := kubeMgr.rotClient.CoreV1().Secrets(*secret.Namespace)
 	return secrets.Apply(context.Background(), secret, metav1.ApplyOptions{FieldManager: "application/apply-patch"})
 }
+*/
 
-func (kubeMgr *KubeMgrStruct) SetDeployment(deployment *appsv1.Deployment) error {
+func (kubeMgr *KubeMgrStruct) SetDeployment(client *kubernetes.Clientset, deployment *appsv1.Deployment) error {
 	if deployment.Namespace == "" {
 		deployment.Namespace = "default"
 	}
-	deployments := kubeMgr.client.AppsV1().Deployments(deployment.Namespace)
+	deployments := client.AppsV1().Deployments(deployment.Namespace)
 	_, err := deployments.Get(context.Background(), deployment.Name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -157,11 +195,11 @@ func (kubeMgr *KubeMgrStruct) SetDeployment(deployment *appsv1.Deployment) error
 	return nil
 }
 
-func (kubeMgr *KubeMgrStruct) SetSecret(secret *corev1.Secret) error {
+func (kubeMgr *KubeMgrStruct) SetSecret(client *kubernetes.Clientset, secret *corev1.Secret) error {
 	if secret.Namespace == "" {
 		secret.Namespace = "default"
 	}
-	secrets := kubeMgr.client.CoreV1().Secrets(secret.Namespace)
+	secrets := client.CoreV1().Secrets(secret.Namespace)
 	_, err := secrets.Get(context.Background(), secret.Name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -179,11 +217,12 @@ func (kubeMgr *KubeMgrStruct) SetSecret(secret *corev1.Secret) error {
 	}
 	return nil
 }
-func (kubeMgr *KubeMgrStruct) SetConfigMap(configmap *corev1.ConfigMap) error {
+
+func (kubeMgr *KubeMgrStruct) SetConfigMap(client *kubernetes.Clientset, configmap *corev1.ConfigMap) error {
 	if configmap.Namespace == "" {
 		configmap.Namespace = "default"
 	}
-	configmaps := kubeMgr.client.CoreV1().ConfigMaps(configmap.Namespace)
+	configmaps := client.CoreV1().ConfigMaps(configmap.Namespace)
 	_, err := configmaps.Get(context.Background(), configmap.Name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -202,15 +241,17 @@ func (kubeMgr *KubeMgrStruct) SetConfigMap(configmap *corev1.ConfigMap) error {
 	return nil
 }
 
-func (kubeMgr *KubeMgrStruct) ApplyCm(cm *acorev1.ConfigMapApplyConfiguration) (*corev1.ConfigMap, error) {
-	cms := kubeMgr.client.CoreV1().ConfigMaps(*cm.Namespace)
-	return cms.Apply(context.Background(), cm, metav1.ApplyOptions{FieldManager: "application/apply-patch"})
-}
+/*
+	func (kubeMgr *KubeMgrStruct) ApplyCm(cm *acorev1.ConfigMapApplyConfiguration) (*corev1.ConfigMap, error) {
+		cms := kubeMgr.rotClient.CoreV1().ConfigMaps(*cm.Namespace)
+		return cms.Apply(context.Background(), cm, metav1.ApplyOptions{FieldManager: "application/apply-patch"})
+	}
+*/
 
 func (kubeMgr *KubeMgrStruct) ListCas() ([]string, error) {
 	result := make([]string, 0)
 
-	secrets := kubeMgr.client.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
+	secrets := kubeMgr.rotClient.CoreV1().Secrets(kubeMgr.sealCtrlNamespace)
 	list, err := secrets.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return result, err

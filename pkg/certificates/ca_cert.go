@@ -236,12 +236,7 @@ func GetCA(workloadName string) (keyRing *KeyRing, errout error) {
 	// Certificate Authority
 	caSecret, err := KubeMgr.GetCa(workloadName)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("secret not found")
-		}
-	}
-	if err != nil {
-		return nil, fmt.Errorf("error accessing secret: %w", err)
+		return nil, err
 	}
 
 	// Check secret validity

@@ -18,7 +18,7 @@ spec:
       - name: dhadas-kube-pull-secret
       containers:
       - name: ubuntu
-        image: quay.io/dhadas/wrap-ubuntu
+        image: quay.io/dhadas/ubuntu.test.seal
         command: ["sleep"]
         args: ["123456"]
         envFrom:
@@ -27,8 +27,6 @@ spec:
         - configMapRef:
             name: game-config
         env: 
-        - name: WRAP_DEBUG
-          value: "True"
         - name: DEMO_STRING
           value: "This is a demo string"
         - name: DEMO_NUM

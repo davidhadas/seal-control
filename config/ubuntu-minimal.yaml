@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ubuntu-minimal
+  labels:
+    app: ubuntu-minimal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ubuntu-minimal
+  template:
+    metadata:
+      annotations:
+        io.containerd.cri.runtime-handler: kata
+      labels:
+        app: ubuntu-minimal
+    spec:
+      hostname: myhostname
+      hostAliases:
+      - ip: "127.0.0.1"
+        hostnames:
+        - "foo.local"
+        - "bar.local"
+      - ip: "10.1.2.3"
+        hostnames:
+        - "foo.remote"
+        - "bar.remote"
+      dnsConfig:
+        nameservers:
+          - 192.0.2.1 # this is an example
+        searches:
+          - ns1.svc.cluster-domain.example
+          - my.dns.search.suffix
+        options:
+          - name: ndots
+            value: "2"
+          - name: edns0
+      runtimeClassName: kata
+      nodeSelector:
+        katacontainers.io/kata-runtime: "true"
+      
+      imagePullSecrets:
+      - name: dhadas-kube-pull-secret
+      containers:
+      - name: ubuntu-minimal
+        imagePullPolicy: Always
+        image: quay.io/dhadas/ubuntu.test.seal
+        command: ["sleep"]
+        args: ["123456"]

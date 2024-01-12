@@ -17,10 +17,12 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	"github.com/davidhadas/seal-control/pkg/log"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 func main() {
@@ -31,14 +33,18 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rot", certificates.Rot_service)
 
-	err = certificates.InitKubeMgr()
+	err = certificates.InitRotKubeMgr()
 	if err != nil {
 		logger.Infof("Failed to create a kubeMgr: %v", err)
 		return
 	}
 	err = certificates.LoadRotCa()
 	if err != nil {
-		logger.Infof("Failed to load ROT CA: %v", err)
+		if apierrors.IsNotFound(err) {
+			fmt.Printf("Failed to load ROT CA: %v\n", err)
+			return
+		}
+		fmt.Printf("Cant access ROT CA: %v\n", err)
 		return
 	}
 

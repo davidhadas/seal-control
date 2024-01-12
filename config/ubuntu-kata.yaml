@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ubuntu-deployment
+  labels:
+    app: ubuntu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ubuntu
+  template:
+    metadata:
+      annotations:
+        io.containerd.cri.runtime-handler: kata
+      labels:
+        app: ubuntu
+    spec:
+      runtimeClassName: kata
+      nodeSelector:
+        katacontainers.io/kata-runtime: "true"
+      imagePullPolicy: Always
+      imagePullSecrets:
+      - name: dhadas-kube-pull-secret
+      containers:
+      - name: ubuntu
+        image: quay.io/dhadas/ubuntu.test.seal
+        command: ["sleep"]
+        args: ["123456"]
+        envFrom:
+        - secretRef:
+            name: secret-basic-auth
+        - configMapRef:
+            name: game-config
+        env: 
+        - name: WRAP_DEBUG
+          value: "True"
+        - name: DEMO_STRING
+          value: "This is a demo string"
+        - name: DEMO_NUM
+          value: "42" 
+        - name: SECRET_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: secret-basic-auth
+              key: username
+        - name: PLAYER_INITIAL_LIVES 
+          valueFrom:
+            configMapKeyRef:
+              name: game-config           # The ConfigMap this value comes from.
+              key: player_initial_lives # The key to fetch.
+        - name: GATE_PROPETRIES_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: game-config           # The ConfigMap this value comes from.
+              key: game.properties # The key to fetch.
+        volumeMounts:
+        - name: cm-volume
+          mountPath: /run/seal/bobo/mycm
+        - name: secret-volume
+          readOnly: true
+          mountPath: "/run/seal/coco/mysecret"
+        - name: git-volume
+          mountPath:  /mnt/mygit
+        - name: hostpath-volume
+          mountPath: /mnt/myhostpath
+        - name: downwardapi-volume
+          mountPath: /mnt/mydownwardapi
+        - name: emptydir-volume
+          mountPath: /mnt/myemptydi
+      volumes:
+      - name: cm-volume
+        configMap:
+          name: game-config
+      - name: secret-volume
+        secret:
+          secretName: secret-basic-auth
+      - name: emptydir-volume
+        emptyDir:
+          sizeLimit: 500Mi
+      - name: downwardapi-volume
+        downwardAPI:
+          items:
+          - path: "labels"
+            fieldRef:
+              fieldPath: metadata.labels
+          - path: "annotations"
+            fieldRef:
+              fieldPath: metadata.annotations
+      - name: git-volume
+        gitRepo:
+          repository: "https://github.com/davidhadas/seal-control.git"
+      - name: hostpath-volume
+        hostPath:
+          path: /tmp # directory location on host
+          type: Directory # this field is optional
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: game-config
+data:
+  # property-like keys; each key maps to a simple value
+  player_initial_lives: "3"
+  ui_properties_file_name: "user-interface.properties"
+
+  # file-like keys
+  game.properties: |
+    enemy.types=aliens,monsters
+    player.maximum-lives=5    
+  user-interface.properties: |
+    color.good=purple
+    color.bad=yellow
+    allow.textmode=true 
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: secret-basic-auth
+type: kubernetes.io/basic-auth
+stringData:
+  username: admin # required field for kubernetes.io/basic-auth
+  password: t0p-Secret # required field for kubernetes.io/basic-auth

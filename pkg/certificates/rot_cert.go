@@ -43,7 +43,7 @@ func CreateRotService() (*tls.Certificate, *x509.CertPool, error) {
 
 	logger.Infof("Sans: %v\n", sans)
 
-	privateKeyBlock, certBlock, err := createPodCert(KubeMgr.RotCaKeyRing.prkPem, KubeMgr.RotCaKeyRing.certPem, "", sans...)
+	privateKeyBlock, certBlock, err := createPodCert(KubeMgr.RotCaKeyRing.prk, KubeMgr.RotCaKeyRing.cert, "", sans...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot create pod cert for rot: %w", err)
 	}
@@ -75,7 +75,7 @@ func CreateInit(workloadName string, serviceName string) (*InitEgg, error) {
 
 	sans := []string{"any", "init"}
 
-	privateKeyBlock, certBlock, err := createPodCert(KubeMgr.RotCaKeyRing.prkPem, KubeMgr.RotCaKeyRing.certPem, workloadName, sans...)
+	privateKeyBlock, certBlock, err := createPodCert(KubeMgr.RotCaKeyRing.prk, KubeMgr.RotCaKeyRing.cert, workloadName, sans...)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create pod cert for init: %w", err)
 

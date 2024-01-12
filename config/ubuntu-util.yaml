@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ubuntu-util
+  annotations:
+    io.containerd.cri.runtime-handler: kata-qemu-tdx
+spec:
+  runtimeClassName: kata-qemu-tdx
+  containers:
+  - name: ubuntu-util
+    image: ubuntu
+    imagePullPolicy: Always
+    command: ["/bin/sh"]
+    args: ["-c", "cat /proc/self/mountinfo; sleep 123456"]
+
+        

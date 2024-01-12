@@ -35,8 +35,8 @@ type KeyRing struct {
 	pKeys      map[int][]byte
 	certs      map[int][]byte
 	sKeys      map[int][]byte
-	certPem    *x509.Certificate
-	prkPem     *rsa.PrivateKey
+	cert       *x509.Certificate
+	prk        *rsa.PrivateKey
 	rotUrl     string
 	peers      map[string]string
 }
@@ -248,13 +248,13 @@ func (kr *KeyRing) Consolidate() error {
 	}
 
 	var err error
-	kr.certPem, kr.prkPem, err = parseCert(kr.certs[kr.latestCert], kr.pKeys[kr.latestPKey])
+	kr.cert, kr.prk, err = parseCert(kr.certs[kr.latestCert], kr.pKeys[kr.latestPKey])
 	if err != nil {
 		return fmt.Errorf("faield to parse cert: %w", err)
 	}
 
-	if !kr.certPem.NotAfter.After(time.Now().Add(rotationThreshold)) {
-		return fmt.Errorf("certificate is going to expire %v", kr.certPem.NotAfter)
+	if !kr.cert.NotAfter.After(time.Now().Add(rotationThreshold)) {
+		return fmt.Errorf("certificate is going to expire %v", kr.cert.NotAfter)
 	}
 
 	return nil

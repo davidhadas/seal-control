@@ -25,38 +25,49 @@ import (
 	"strconv"
 	"strings"
 
+	"crypto/rand"
+
 	"github.com/davidhadas/seal-control/pkg/certificates"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 )
 
-func apply(workloadCaKeyRing *certificates.KeyRing, args []string) {
-	var infile, outfile string
+func apply(workloadCaKeyRing *certificates.KeyRing, args []string) bool {
+	var infile, outfile, contextName string
 	var sealall bool
+	if len(args) == 0 {
+		apply_help()
+		return false
+	}
+	contextName = args[0]
+	args = args[1:]
+
 	for {
 		if len(args) == 0 {
-			if infile != "" {
-				apply_files(workloadCaKeyRing, infile, outfile, sealall)
+			if infile != "" && contextName != "" {
+				apply_files(contextName, workloadCaKeyRing, infile, outfile, sealall)
+				return true
 			} else {
 				apply_help()
+				return false
 			}
-			return
 		}
 		switch args[0] {
 		case "-f":
 			if len(args) < 2 {
 				apply_help()
-				return
+				return false
 			}
 			infile = args[1]
 			args = args[2:]
 		case "-o":
 			if len(args) < 2 {
 				apply_help()
-				return
+				return false
 			}
 			outfile = args[1]
 			args = args[2:]
@@ -65,10 +76,10 @@ func apply(workloadCaKeyRing *certificates.KeyRing, args []string) {
 			args = args[1:]
 		case "-h":
 			apply_help()
-			return
+			return true
 		default:
 			apply_help()
-			return
+			return false
 		}
 	}
 }
@@ -86,13 +97,19 @@ func apply_help() {
 	fmt.Printf(" -a  				seal complete cm or se yaml \n")
 
 	fmt.Printf("\nSubcommands:\n\n")
-	fmt.Printf("  seal apply -f <cm.yaml>\n")
-	fmt.Printf("  seal apply -f <cm.yaml> -o <encrtypted-cm.yaml>\n")
-	fmt.Printf("  seal apply -f <cm.yaml> -o -a\n")
-	fmt.Printf("  cat cm.yaml | seal apply -f -\n")
+	fmt.Printf("  seal wl <Workload-Name> apply <KubeContextName> -f <cm.yaml>\n")
+	fmt.Printf("  seal wl <Workload-Name> apply <KubeContextName> -f <cm.yaml> -o <encrtypted-cm.yaml>\n")
+	fmt.Printf("  seal wl <Workload-Name> apply <KubeContextName> -f <cm.yaml> -o -a\n")
+	fmt.Printf("  cat cm.yaml | seal apply wl <Workload-Name> -f -\n")
 }
 
-func apply_files(workloadCaKeyRing *certificates.KeyRing, infile string, outfile string, sealall bool) {
+func apply_files(contextName string, workloadCaKeyRing *certificates.KeyRing, infile string, outfile string, sealall bool) {
+	client, err := certificates.InitRemoteKubeMgr(contextName)
+	if err != nil {
+		fmt.Printf("failed to initRemoteKubeMgr: %v", err)
+		return
+	}
+
 	var reader io.Reader
 	if infile == "-" {
 		reader = bufio.NewReader(os.Stdin)
@@ -113,10 +130,10 @@ func apply_files(workloadCaKeyRing *certificates.KeyRing, infile string, outfile
 	}
 	bufSplits := strings.Split(string(buf), "---\n")
 	for _, split := range bufSplits {
-		apply_file(workloadCaKeyRing, []byte(split), outfile, sealall)
+		apply_file(client, workloadCaKeyRing, []byte(split), outfile, sealall)
 	}
 }
-func apply_file(workloadCaKeyRing *certificates.KeyRing, buf []byte, outfile string, sealall bool) {
+func apply_file(client *kubernetes.Clientset, workloadCaKeyRing *certificates.KeyRing, buf []byte, outfile string, sealall bool) {
 	decode := scheme.Codecs.UniversalDeserializer().Decode
 	obj, _, err := decode(buf, nil, nil)
 	if err != nil {
@@ -153,7 +170,7 @@ func apply_file(workloadCaKeyRing *certificates.KeyRing, buf []byte, outfile str
 				fmt.Printf("Failed to output Secret %v\n", err)
 			}
 		} else {
-			if err := certificates.KubeMgr.SetConfigMap(cm); err != nil {
+			if err := certificates.KubeMgr.SetConfigMap(client, cm); err != nil {
 				fmt.Printf("Failed to SetCm %v\n", err)
 			}
 		}
@@ -188,13 +205,38 @@ func apply_file(workloadCaKeyRing *certificates.KeyRing, buf []byte, outfile str
 				fmt.Printf("Failed to output Secret %v\n", err)
 			}
 		} else {
-			if err := certificates.KubeMgr.SetSecret(secret); err != nil {
+			if err := certificates.KubeMgr.SetSecret(client, secret); err != nil {
 				fmt.Printf("Failed to set Secret %v\n", err)
 			}
 		}
 	case "Deployment":
 		deployment := obj.(*appsv1.Deployment)
-		for containerIndex, container := range deployment.Spec.Template.Spec.Containers {
+		podSpec := deployment.Spec.Template.Spec
+		podAnnotations := deployment.Spec.Template.Annotations
+		podUniqeRef := make([]byte, 4)
+		_, err := rand.Read(podUniqeRef)
+		if err != nil {
+			fmt.Printf("failed to generate pod unique key: %v", err)
+			return
+		}
+		sealRef := base64.StdEncoding.EncodeToString(podUniqeRef)
+		podAnnotations["seal.research.ibm/ref"] = sealRef
+		sdAnnotation := certificates.NewSealData()
+		logLevel := podAnnotations["seal.research.ibm/log"]
+		if logLevel == "" {
+			logLevel = "info"
+		}
+		sdAnnotation.AddUnsealed("log", []byte(logLevel))
+		sdAnnotation.AddUnsealed("EnvExempt", []byte(podAnnotations["seal.research.ibm/env-exampt"]))
+		sdAnnotation.AddUnsealed("MountExempt", []byte(podAnnotations["seal.research.ibm/mount-exempt"]))
+		sealedAnnotations, err := sdAnnotation.Encrypt(workloadCaKeyRing.GetSymetricKey(), sealRef)
+		if err != nil {
+			fmt.Printf("Failed to Encrypt Annotations: %v\n", err)
+			return
+		}
+		sealConfig := base64.StdEncoding.EncodeToString(sealedAnnotations)
+
+		for containerIndex, container := range podSpec.Containers {
 			sdEnv := certificates.NewSealData()
 			envVar := []v1.EnvVar{}
 			for _, env := range container.Env {
@@ -204,15 +246,19 @@ func apply_file(workloadCaKeyRing *certificates.KeyRing, buf []byte, outfile str
 					envVar = append(envVar, env)
 				}
 			}
-			err := sdEnv.EncryptItems(workloadCaKeyRing.GetSymetricKey(), "")
+			sealedEnvs, err := sdEnv.Encrypt(workloadCaKeyRing.GetSymetricKey(), "")
+			//err := sdEnv.EncryptItems(workloadCaKeyRing.GetSymetricKey(), "")
 			if err != nil {
 				fmt.Printf("Failed to Encrypt Env: %v\n", err)
 				return
 			}
-			for k, v := range sdEnv.SealedMap {
-				envVar = append(envVar, v1.EnvVar{Name: k, Value: base64.StdEncoding.EncodeToString(v)})
-			}
-			deployment.Spec.Template.Spec.Containers[containerIndex].Env = envVar
+			//for k, v := range sdEnv.SealedMap {
+			//	envVar = append(envVar, v1.EnvVar{Name: k, Value: base64.StdEncoding.EncodeToString(v)})
+			//}
+			envVar = append(envVar, v1.EnvVar{Name: "_SEAL_REF", Value: sealRef})
+			envVar = append(envVar, v1.EnvVar{Name: "_SEAL_CONFIG", Value: sealConfig})
+			envVar = append(envVar, v1.EnvVar{Name: "_SEAL_ENV", Value: base64.RawStdEncoding.EncodeToString(sealedEnvs)})
+			podSpec.Containers[containerIndex].Env = envVar
 
 			if len(container.Command) < 1 {
 				fmt.Printf("Missing madatory Command in container: %s\n", container.Name)
@@ -229,21 +275,21 @@ func apply_file(workloadCaKeyRing *certificates.KeyRing, buf []byte, outfile str
 				sdArgs.AddUnsealed(strconv.Itoa(index), []byte(arg))
 				index++
 			}
-			sealedArgs, err := sdArgs.Encrypt(workloadCaKeyRing.GetSymetricKey(), "args")
+			sealedArgs, err := sdArgs.Encrypt(workloadCaKeyRing.GetSymetricKey(), "args"+sealRef)
 			if err != nil {
 				fmt.Printf("Failed to Encrypt Args: %v\n", err)
 				return
 			}
 			base64Sealed := base64.StdEncoding.EncodeToString(sealedArgs)
-			deployment.Spec.Template.Spec.Containers[containerIndex].Args = []string{base64Sealed}
-			deployment.Spec.Template.Spec.Containers[containerIndex].Command = []string{"seal-wrap"}
+			podSpec.Containers[containerIndex].Args = []string{base64Sealed}
+			podSpec.Containers[containerIndex].Command = []string{"/bin/seal-wrap"}
 		}
 		if outfile != "" {
 			if err := outputFile(outfile, deployment); err != nil {
 				fmt.Printf("Failed to output Secret %v\n", err)
 			}
 		} else {
-			if err := certificates.KubeMgr.SetDeployment(deployment); err != nil {
+			if err := certificates.KubeMgr.SetDeployment(client, deployment); err != nil {
 				fmt.Printf("Failed to SetDeployment %v\n", err)
 			}
 		}
@@ -263,14 +309,14 @@ func outputFile(outfile string, obj runtime.Object) error {
 		// write to file
 		out, err := os.Create(outfile)
 		if err != nil {
-			return fmt.Errorf("Failed to create file %v", err)
+			return fmt.Errorf("failed to create file %v", err)
 		}
 		defer out.Close()
 	}
 
 	err := y.PrintObj(obj, out)
 	if err != nil {
-		return fmt.Errorf("Failed to write to file %v", err)
+		return fmt.Errorf("failed to write to file %v", err)
 	}
 	os.Stdout.WriteString("---\n")
 	return nil

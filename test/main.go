@@ -25,7 +25,7 @@ func main() {
 	log.InitLog("Debug")
 	logger := log.Log
 
-	err := certificates.InitKubeMgr()
+	err := certificates.InitRotKubeMgr()
 	if err != nil {
 		logger.Infof("Failed to create a kubeMgr: %v", err)
 		return

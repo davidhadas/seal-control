@@ -49,13 +49,17 @@ func testPod() bool {
 		return false
 	}
 
-	pmr := certificates.NewPodMessageReq("my-workload-name", "my-pod")
-
+	pmr, err := certificates.NewPodMessageReq("my-workload-name", "my-pod")
+	if err != nil {
+		fmt.Printf("Failed to create PodMessageReq: %v\n", err)
+		return false
+	}
 	podMessage, err := certificates.CreatePodMessage(pmr)
 	if err != nil {
 		logger.Infof("Failed to CreatePodMessage: %v", err)
 		return false
 	}
+	podData := certificates.NewPodData(pmr, podMessage)
 	err = certificates.KubeMgr.DeleteCa("my-workload-name")
 	if err != nil {
 		logger.Infof("Failed to delete a CA: %v", err)
@@ -65,8 +69,11 @@ func testPod() bool {
 	//certificates.RenewCA(kubeMgr, caKeyRing)
 	//certificates.RenewCA(kubeMgr, caKeyRing)
 	//certificates.RenewSymetricKey(kubeMgr, caKeyRing)
-	cert, caPool, err := certificates.GetTlsFromPodMessage(podMessage)
-
+	cert, caPool, err := podData.GetTlsFromPodMessage()
+	if err != nil {
+		logger.Infof("Failed to GetTlsFromPodMessage: %v", err)
+		return false
+	}
 	mts := &certificates.MutualTls{
 		IsServer: true,
 		Cert:     cert,

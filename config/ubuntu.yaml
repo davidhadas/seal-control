@@ -11,14 +11,18 @@ spec:
       app: ubuntu
   template:
     metadata:
+      annotations:
+        io.containerd.cri.runtime-handler: kata
       labels:
         app: ubuntu
     spec:
+      
       imagePullSecrets:
       - name: dhadas-kube-pull-secret
       containers:
       - name: ubuntu
-        image: quay.io/dhadas/wrap-ubuntu
+        image: quay.io/dhadas/ubuntu.test.seal
+        imagePullPolicy: Always
         command: ["sleep"]
         args: ["123456"]
         envFrom:
