@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,15 +30,16 @@ import (
 // WIP
 
 func main() {
-	var devEnvFlag bool // True if we are running in development environment
-
 	log.InitLog("Debug")
 	logger := log.Log
 
 	logger.Infof("Seal wrap starting")
+	logger.Sync()
 
 	var eegg []byte
 	var err error
+	var devEnvFlag bool // True if we are running in development environment
+
 	eegg, err = os.ReadFile("/egg.txt")
 	if err != nil {
 		logger.Infof("Seal wrap: Failed to get egg: %s", err.Error())
@@ -53,7 +53,7 @@ func main() {
 			logger.Infof("Seal wrap: Failed to get egg: %s", err.Error())
 			cwd, _ := os.Getwd()
 			logger.Infof("cwd: %s", cwd)
-			os.Exit(1)
+			exit()
 		}
 		devEnvFlag = true
 	}
@@ -63,7 +63,7 @@ func main() {
 	for _, h := range hsplits {
 		if err := certificates.ValidateHostname(h); err != nil {
 			logger.Infof("Seal wrap: Ilegal hostname in env HOSTNAMES '%s': %v", h, err)
-			os.Exit(1)
+			exit()
 		}
 		logger.Infof("Seal wrap: Adding hostname '%s'", h)
 	}
@@ -71,86 +71,99 @@ func main() {
 	podData, err := certificates.Rot_client(string(eegg), hsplits)
 	if err != nil {
 		logger.Infof("Seal wrap: Failed to get podMassage:", err)
-		os.Exit(1)
+		exit()
 	}
 
 	wks, current, err := podData.GetWKeysFromPodData()
 	if err != nil {
 		logger.Infof("Seal wrap: Failed to get workload keys:", err)
-		os.Exit(1)
+		exit()
 	}
 	wKey := wks[current]
 
-	sealRef := os.Getenv("_SEAL_REF")
-	sealConfig := os.Getenv("_SEAL_CONFIG")
-	sealEnv := os.Getenv("_SEAL_ENV")
-
-	if err != nil {
-		logger.Infof("Seal wrap: cannot find _SEAL_REF")
-		os.Exit(1)
+	sealConfig := os.Getenv(certificates.SEAL_CONFIG)
+	sealEnv := os.Getenv(certificates.SEAL_ENV)
+	sealDir := os.Getenv(certificates.SEAL_DIR)
+	sealMount := os.Getenv(certificates.SEAL_MOUNT)
+	sealRef := os.Getenv(certificates.SEAL_REF)
+	if sealRef == "" {
+		logger.Infof("Seal wrap: cannot find SEAL_REF")
+		exit()
 	}
 
-	options, err := get_config(wKey, sealRef, sealConfig)
+	config, err := certificates.UnsealConfig(wKey, "config"+sealRef, sealConfig)
 	if err != nil {
-		logger.Infof("Seal wrap: cannot find confiuration: %v", err)
-		os.Exit(1)
+		logger.Infof("Seal wrap: cannot obtain configuration: %v", err)
+		exit()
 	}
+	logger.Infof("Seal wrap cofig: %v", config)
 
-	logger.Infof("Seal wrap cofig: %v", options)
-
-	if err := check_mounts(devEnvFlag, options); err != nil {
+	mounts, err := certificates.UnsealMount(wKey, "mount"+sealRef, sealMount, config)
+	if err != nil {
+		logger.Infof("failed to UnsealMount: %v", err)
+		exit()
+	}
+	if err := check_mounts(devEnvFlag, mounts, config); err != nil {
 		logger.Infof("Seal wrap: Ilegal mounts: %v", err)
-		os.Exit(1)
+		exit()
 	}
 
-	err = certificates.UnsealDir("/run/seal/", "/", wKey, options)
+	// Check if /etc/hosts, /etc/hostname, /etc/resolv.conf are legit
+	err = testHostname(devEnvFlag)
+	if err != nil {
+		logger.Infof("/etc/hostname: %v\n", err)
+		exit()
+	}
+	err = testHosts(devEnvFlag)
+	if err != nil {
+		logger.Infof("/etc/hosts: %v\n", err)
+		exit()
+	}
+	err = testResolv(devEnvFlag)
+	if err != nil {
+		logger.Infof("/etc/resolv.conf: %v\n ", err)
+		exit()
+	}
+
+	err = certificates.UnsealDir(certificates.SEAL_MOUNTPOINT, "/", wKey, "dir"+sealRef, sealDir, config)
 	if err != nil {
 		logger.Infof("failed to UnsealDir: %v", err)
-		return
+		exit()
 	}
 
-	env, err := certificates.UnsealEnv(wKey, sealEnv, options)
+	env, err := certificates.UnsealEnv(wKey, "env"+sealRef, sealEnv, os.Environ(), config)
 	if err != nil {
 		logger.Infof("failed to UnsealEnv: %v", err)
-		return
+		exit()
 	}
 
-	cmd, args, err := certificates.UnsealArgs(wKey, options, sealRef)
+	cmd, args, err := certificates.UnsealArgs(wKey, "args"+sealRef, os.Args, config)
 	if err != nil {
 		logger.Infof("failed to UnsealArgs: %v", err)
-		return
+		exit()
 	}
 	if cmd == "" {
 		logger.Infoln("UnsealArgs  - no CMD or ARGS found")
 	} else {
 		logger.Infof("Starting process '%s %s'", cmd, strings.Join(args, " "))
+		logger.Infof("  Env of process:")
 		for _, str := range env {
 			logger.Debugf("\t%s", str)
 		}
 		go startProcess(cmd, args, env)
 	}
+
 	for {
-		fmt.Println("Tick")
-		time.Sleep(10 * time.Second)
+		fmt.Println("Background Monitor Tick")
+		time.Sleep(60 * time.Second)
 	}
 }
 
-func get_config(wKey []byte, sealRef string, sealConfigStr string) (map[string]string, error) {
-	sealed, err := base64.StdEncoding.DecodeString(sealConfigStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode - should be Base64 '%s' - err %v", os.Args[0], err)
-	}
-	sdAnnotation := certificates.NewSealData()
-	err = sdAnnotation.Decrypt(wKey, sealRef, sealed)
-	if err != nil {
-		return nil, fmt.Errorf("failed to Decrypt Seal Config: %w", err)
-	}
-	options := make(map[string]string)
-	for k, v := range sdAnnotation.UnsealedMap {
-		options[k] = string(v)
-	}
-
-	return options, nil
+func exit() {
+	fmt.Println("Exiting...")
+	time.Sleep(60 * time.Second)
+	fmt.Println("Done...")
+	os.Exit(0)
 }
 
 func startProcess(cmd string, args []string, env []string) {
@@ -161,10 +174,10 @@ func startProcess(cmd string, args []string, env []string) {
 	command.Stderr = os.Stderr
 	if err := command.Run(); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitError.ExitCode())
+			fmt.Printf("Error while Running: %s - error %v", cmd, exitError)
+			exit()
 		}
 		fmt.Printf("Failed to Run: %v", err)
-		os.Exit(-1)
 	}
-	os.Exit(0)
+	exit()
 }

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 
@@ -213,6 +214,8 @@ func apply_file(client *kubernetes.Clientset, workloadCaKeyRing *certificates.Ke
 		deployment := obj.(*appsv1.Deployment)
 		podSpec := deployment.Spec.Template.Spec
 		podAnnotations := deployment.Spec.Template.Annotations
+
+		// sealRef - cryptographycally associate podSpec elements
 		podUniqeRef := make([]byte, 4)
 		_, err := rand.Read(podUniqeRef)
 		if err != nil {
@@ -220,22 +223,24 @@ func apply_file(client *kubernetes.Clientset, workloadCaKeyRing *certificates.Ke
 			return
 		}
 		sealRef := base64.StdEncoding.EncodeToString(podUniqeRef)
-		podAnnotations["seal.research.ibm/ref"] = sealRef
-		sdAnnotation := certificates.NewSealData()
+
+		// sealedConfig - maintains seal-wrap configurations
+		sdConfig := certificates.NewSealData()
 		logLevel := podAnnotations["seal.research.ibm/log"]
 		if logLevel == "" {
 			logLevel = "info"
 		}
-		sdAnnotation.AddUnsealed("log", []byte(logLevel))
-		sdAnnotation.AddUnsealed("EnvExempt", []byte(podAnnotations["seal.research.ibm/env-exampt"]))
-		sdAnnotation.AddUnsealed("MountExempt", []byte(podAnnotations["seal.research.ibm/mount-exempt"]))
-		sealedAnnotations, err := sdAnnotation.Encrypt(workloadCaKeyRing.GetSymetricKey(), sealRef)
+		sdConfig.AddUnsealed("log", []byte(logLevel))
+		sdConfig.AddUnsealed("EnvExempt", []byte(podAnnotations["seal.research.ibm/env-exampt"]))
+		sdConfig.AddUnsealed("MountExempt", []byte(podAnnotations["seal.research.ibm/mount-exempt"]))
+		sealedConfig, err := sdConfig.Encrypt(workloadCaKeyRing.GetSymetricKey(), "config"+sealRef)
 		if err != nil {
 			fmt.Printf("Failed to Encrypt Annotations: %v\n", err)
 			return
 		}
-		sealConfig := base64.StdEncoding.EncodeToString(sealedAnnotations)
 
+		// sealedEnvs - mainatins list of associated env variables
+		// sealedMounts - mainatins list of associated mount points
 		for containerIndex, container := range podSpec.Containers {
 			sdEnv := certificates.NewSealData()
 			envVar := []v1.EnvVar{}
@@ -246,19 +251,46 @@ func apply_file(client *kubernetes.Clientset, workloadCaKeyRing *certificates.Ke
 					envVar = append(envVar, env)
 				}
 			}
-			sealedEnvs, err := sdEnv.Encrypt(workloadCaKeyRing.GetSymetricKey(), "")
-			//err := sdEnv.EncryptItems(workloadCaKeyRing.GetSymetricKey(), "")
+			sealedEnvs, err := sdEnv.Encrypt(workloadCaKeyRing.GetSymetricKey(), "env"+sealRef)
 			if err != nil {
 				fmt.Printf("Failed to Encrypt Env: %v\n", err)
 				return
 			}
-			//for k, v := range sdEnv.SealedMap {
-			//	envVar = append(envVar, v1.EnvVar{Name: k, Value: base64.StdEncoding.EncodeToString(v)})
-			//}
-			envVar = append(envVar, v1.EnvVar{Name: "_SEAL_REF", Value: sealRef})
-			envVar = append(envVar, v1.EnvVar{Name: "_SEAL_CONFIG", Value: sealConfig})
-			envVar = append(envVar, v1.EnvVar{Name: "_SEAL_ENV", Value: base64.RawStdEncoding.EncodeToString(sealedEnvs)})
+
+			sdDirs := certificates.NewSealData()
+			sdMounts := certificates.NewSealData()
+			mounts := container.VolumeMounts
+			for mountIndex, mount := range mounts {
+				if mount.MountPath[0] != byte('/') {
+					fmt.Printf("Mount point should be absolute %s\n", mount.MountPath)
+					return
+				}
+				if strings.HasPrefix(mount.MountPath, certificates.SEAL_MOUNTPOINT) {
+					dir := path.Join("/", strings.TrimPrefix(mount.MountPath, certificates.SEAL_MOUNTPOINT))
+					sdDirs.AddUnsealed(strconv.Itoa(mountIndex), []byte(dir))
+				} else {
+					sdMounts.AddUnsealed(strconv.Itoa(mountIndex), []byte(mount.MountPath))
+				}
+			}
+			sealedDirs, err := sdDirs.Encrypt(workloadCaKeyRing.GetSymetricKey(), "dir"+sealRef)
+			if err != nil {
+				fmt.Printf("Failed to Encrypt Dirs: %v\n", err)
+				return
+			}
+
+			sealedMounts, err := sdMounts.Encrypt(workloadCaKeyRing.GetSymetricKey(), "mount"+sealRef)
+			if err != nil {
+				fmt.Printf("Failed to Encrypt Mounts: %v\n", err)
+				return
+			}
+			envVar = append(envVar, v1.EnvVar{Name: certificates.SEAL_REF, Value: sealRef})
+			envVar = append(envVar, v1.EnvVar{Name: certificates.SEAL_CONFIG, Value: base64.StdEncoding.EncodeToString(sealedConfig)})
+			envVar = append(envVar, v1.EnvVar{Name: certificates.SEAL_ENV, Value: base64.StdEncoding.EncodeToString(sealedEnvs)})
+			envVar = append(envVar, v1.EnvVar{Name: certificates.SEAL_DIR, Value: base64.StdEncoding.EncodeToString(sealedDirs)})
+			envVar = append(envVar, v1.EnvVar{Name: certificates.SEAL_MOUNT, Value: base64.StdEncoding.EncodeToString(sealedMounts)})
+
 			podSpec.Containers[containerIndex].Env = envVar
+			podSpec.Containers[containerIndex].VolumeMounts = mounts
 
 			if len(container.Command) < 1 {
 				fmt.Printf("Missing madatory Command in container: %s\n", container.Name)

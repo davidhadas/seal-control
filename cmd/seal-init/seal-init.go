@@ -26,7 +26,8 @@ import (
 	"github.com/davidhadas/seal-control/pkg/log"
 )
 
-// WIP
+// Abandoned for seal-wrap
+// Reinstate if container is no lonegr wrapped
 
 func main() {
 	log.InitLog("Debug")
@@ -79,6 +80,6 @@ func main() {
 		os.Exit(1)
 	}
 	symetricKey := wks[current]
-	certificates.UnsealDir("/mnt", "/seal", symetricKey, map[string]string{})
+	certificates.UnsealDir("/mnt", "/seal", symetricKey, "sealRef", "", map[string]string{})
 	logger.Infof("Seal init terminating")
 }

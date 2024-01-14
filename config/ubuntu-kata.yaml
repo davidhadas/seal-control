@@ -13,6 +13,7 @@ spec:
     metadata:
       annotations:
         io.containerd.cri.runtime-handler: kata
+        test: ok
       labels:
         app: ubuntu
     spec:

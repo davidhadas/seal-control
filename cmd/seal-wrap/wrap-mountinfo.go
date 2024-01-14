@@ -42,11 +42,12 @@ import (
 // "mqueue":  {"/dev/mqueue"},
 // "sysfs":   {"/sys"},
 // "overlay": {"/"},
-func check_mounts(devEnvFlag bool, options map[string]string) error {
-	logger := log.Log
-	mountExempt := options["MountExempt"]
-	exemptions := strings.Split(mountExempt, ",")
+func check_mounts(devEnvFlag bool, mounts []string, config map[string]string) error {
 	var err error
+	logger := log.Log
+
+	mountExempt := config["MountExempt"]
+	exemptions := strings.Split(mountExempt, ",")
 	var minfo []mountinfo.Mountinfo
 	if devEnvFlag {
 		minfo, err = mountinfo.GetMountInfo("/tmp/mountinfo")
@@ -58,7 +59,12 @@ func check_mounts(devEnvFlag bool, options map[string]string) error {
 	}
 
 	for _, m := range minfo {
-
+		if slices.Contains(mounts, m.MountPoint) {
+			continue
+		}
+		if slices.Contains(exemptions, m.MountPoint) {
+			continue
+		}
 		switch m.FilesystemType {
 		case "tmpfs":
 			if strings.HasPrefix(m.MountPoint, "/proc/") ||
@@ -103,24 +109,11 @@ func check_mounts(devEnvFlag bool, options map[string]string) error {
 				continue
 			}
 		}
-		if slices.Contains(exemptions, m.MountPoint) {
-			continue
-		}
-		return fmt.Errorf("ilegal mount to virtiofs: '%s'", m.MountPoint)
-	}
 
-	// Check if /etc/hosts, /etc/hostname, /etc/resolv.conf are legit
-	err = testHostname(devEnvFlag)
-	if err != nil {
-		return fmt.Errorf("/etc/hostname: %w", err)
-	}
-	err = testHosts(devEnvFlag)
-	if err != nil {
-		return fmt.Errorf("/etc/hosts: %w", err)
-	}
-	err = testResolv(devEnvFlag)
-	if err != nil {
-		return fmt.Errorf("/etc/resolv.conf: %w", err)
+		for _, val := range mounts {
+			fmt.Printf("'%s' vs '%s' ==> %t\n", m.MountPoint, val, m.MountPoint == val)
+		}
+		return fmt.Errorf("ilegal mount to %s: '%s'", m.FilesystemType, m.MountPoint)
 	}
 	return nil
 }
