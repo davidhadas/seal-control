@@ -1,0 +1,5 @@
+# Create a linux/amd64 ubuntu image 
+ARG IMAGE
+FROM --platform=linux/amd64 ${IMAGE}
+COPY seal-wrap /bin/seal-wrap
+COPY egg.txt /egg.txt
